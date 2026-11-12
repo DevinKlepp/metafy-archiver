@@ -34,6 +34,7 @@
   if (!root) root = document.body;
 
   // 2. Tag live elements with what only the live DOM knows (visibility, size, real src).
+  const ignore = [];  // media URLs of decorative players, so sniffed requests for them are skipped too
   for (const el of root.querySelectorAll('*')) {
     const cs = getComputedStyle(el);
     if (cs.display === 'none' || cs.visibility === 'hidden' || cs.position === 'fixed'
@@ -52,7 +53,32 @@
       el.setAttribute('data-mfa-nat', el.naturalWidth + 'x' + el.naturalHeight);
     }
     if (tag === 'video') {
-      el.setAttribute('data-mfa-src', el.currentSrc || el.src || '');
+      const src = el.currentSrc || el.src || '';
+      // Autoplaying muted loops without controls are decoration (testimonial animations etc.).
+      // (el.muted does not reflect the attribute; check both.)
+      const deco = (el.autoplay || el.hasAttribute('autoplay')) && (el.muted || el.hasAttribute('muted'))
+        && (el.loop || el.hasAttribute('loop')) && !el.controls && !el.hasAttribute('controls');
+      if (deco || /\/animations?\//i.test(src)) {
+        el.setAttribute('data-mfa-drop', '1');
+        for (const s of [src, el.getAttribute('src'), ...[...el.querySelectorAll('source')].map(x => x.getAttribute('src'))]) {
+          const a = abs(s); if (a) ignore.push(a);
+        }
+        continue;
+      }
+      el.setAttribute('data-mfa-src', src);
+    }
+    if (tag === 'mux-player') {
+      // Mux's web component keeps the stream behind a shadow root; the attributes/properties
+      // carry what we need. Signed streams: https://stream.mux.com/<id>.m3u8?token=<jwt>
+      const id = el.getAttribute('playback-id') || el.playbackId || '';
+      const tok = el.getAttribute('playback-token') || (el.tokens && el.tokens.playback) || '';
+      const thumbTok = el.getAttribute('thumbnail-token') || (el.tokens && el.tokens.thumbnail) || '';
+      let src = el.getAttribute('src') || '';
+      if (!src && id) src = 'https://stream.mux.com/' + id + '.m3u8' + (tok ? '?token=' + tok : '');
+      el.setAttribute('data-mfa-src', src);
+      if (id && (thumbTok || !tok)) {
+        el.setAttribute('data-mfa-poster', 'https://image.mux.com/' + id + '/thumbnail.jpg' + (thumbTok ? '?token=' + thumbTok : ''));
+      }
     }
     if (tag !== 'img' && cs.backgroundImage && cs.backgroundImage.startsWith('url(')) {
       const r = el.getBoundingClientRect();
@@ -64,23 +90,44 @@
   }
 
   const clone = root.cloneNode(true);
-  root.querySelectorAll('[data-mfa-drop],[data-mfa-size],[data-mfa-src],[data-mfa-nat],[data-mfa-bg]').forEach(el => {
-    for (const a of ['data-mfa-drop', 'data-mfa-size', 'data-mfa-src', 'data-mfa-nat', 'data-mfa-bg']) el.removeAttribute(a);
-  });
+  const TAGS = ['data-mfa-drop', 'data-mfa-size', 'data-mfa-src', 'data-mfa-nat', 'data-mfa-bg', 'data-mfa-poster'];
+  root.querySelectorAll(TAGS.map(t => '[' + t + ']').join(',')).forEach(el => TAGS.forEach(t => el.removeAttribute(t)));
 
+  // Framework render markers (<!--[0-->, <!---->) are a third of the raw markup; drop them.
+  const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+  const comments = [];
+  while (walker.nextNode()) comments.push(walker.currentNode);
+  comments.forEach(c => c.remove());
+
+  // Where a video is hosted. Mirrored by video_host() in Python; keep the two in step.
+  const hostOf = u => {
+    let h = ''; try { h = new URL(u).hostname; } catch (e) { return ''; }
+    if (/(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i.test(h)) return 'YouTube';
+    if (/(^|\.)vimeo\.com$/i.test(h)) return 'Vimeo';
+    if (/(^|\.)twitch\.tv$/i.test(h)) return 'Twitch';
+    if (/(^|\.)(mux\.com|metafy\.gg|videodelivery\.net|cloudflarestream\.com)$/i.test(h)) return 'Metafy';
+    return h;
+  };
   const images = [], videos = [];
-  const seenVid = new Set();
+  const seenVid = new Map();
   const addVideo = (url, label, kind) => {
     if (!url) return null;
     url = norm(url);
-    if (!seenVid.has(url)) { seenVid.add(url); videos.push({ url, label: (label || '').trim(), kind }); }
+    if (!seenVid.has(url)) {
+      seenVid.set(url, videos.length);
+      videos.push({ url, label: (label || '').trim(), kind, host: hostOf(url) });
+    }
     return url;
   };
+  // A box standing in for the player. MFAVID_<n>_ is replaced by the Python side with the
+  // saved-copy line once the video has been downloaded (or removed if it was not).
   const videoBox = (urls, label) => {
     const box = document.createElement('div');
     box.setAttribute('data-keep-class', 'mfa-video');
+    const host = urls.length ? hostOf(urls[0]) : '';
     const head = document.createElement('strong');
-    head.textContent = '▶ Video' + (label ? ': ' + label : '');
+    head.textContent = '▶ ' + (host === 'Metafy' ? 'Metafy-hosted video' : host ? host + ' video' : 'Video')
+      + (label ? ': ' + label : '');
     box.appendChild(head);
     if (!urls.length) {
       const p = document.createElement('div');
@@ -90,8 +137,13 @@
     for (const u of urls) {
       const d = document.createElement('div');
       const a = document.createElement('a');
-      a.href = u; a.textContent = u;
+      a.href = u; a.textContent = u.length > 120 ? u.slice(0, 117) + '…' : u;
       d.appendChild(a); box.appendChild(d);
+      if (seenVid.has(u)) {
+        const slot = document.createElement('div');
+        slot.textContent = 'MFAVID_' + seenVid.get(u) + '_';
+        box.appendChild(slot);
+      }
     }
     return box;
   };
@@ -113,6 +165,21 @@
     if (!u || u.startsWith('about:')) { el.remove(); return; }
     const label = el.getAttribute('title') || '';
     el.replaceWith(videoBox([addVideo(u, label, 'embed')], label));
+  });
+
+  clone.querySelectorAll('mux-player').forEach(el => {
+    const u = el.getAttribute('data-mfa-src') || '';
+    const label = el.getAttribute('title') || el.getAttribute('metadata-video-title') || '';
+    const box = videoBox(u ? [addVideo(u, label, 'stream')] : [], label);
+    const poster = el.getAttribute('data-mfa-poster');
+    if (poster) {
+      const img = document.createElement('img');
+      img.setAttribute('src', 'MFAIMG_' + images.length + '_');
+      img.setAttribute('data-mfa-done', '1');
+      images.push(poster);
+      box.appendChild(img);
+    }
+    el.replaceWith(box);
   });
 
   clone.querySelectorAll('video').forEach(el => {
@@ -168,9 +235,23 @@
     const [w, h] = size(el);
     if (w < 64 || h < 64) el.remove();
   });
-  // Buttons are app chrome once their icons are gone; keep ones that carry real text content.
+  // The Q&A thread under a section is rendered as buttons (name, time, text). Keep it readable.
   clone.querySelectorAll('button, [role=button]').forEach(el => {
-    if (!el.querySelector('img, [data-keep-class]') && (el.textContent || '').trim().length < 40) el.remove();
+    if (!el.querySelector('time') || (el.textContent || '').trim().length < 20) return;
+    const c = document.createElement('div');
+    c.setAttribute('data-keep-class', 'mfa-comment');
+    while (el.firstChild) c.appendChild(el.firstChild);
+    el.replaceWith(c);
+  });
+  // Buttons are app chrome once their icons are gone; keep ones that carry real text content.
+  // A button wrapping an image (click-to-zoom) is unwrapped so the image stays.
+  clone.querySelectorAll('button, [role=button]').forEach(el => {
+    const text = (el.textContent || '').trim();
+    if (el.querySelector('img, [data-keep-class]')) {
+      if (text.length < 40) el.replaceWith(...el.childNodes);
+    } else if (text.length < 40) {
+      el.remove();
+    }
   });
 
   clone.querySelectorAll('a[href]').forEach(a => {
@@ -199,6 +280,24 @@
     clone.querySelectorAll('div, span, section, p, li, ul, ol, a, header, footer, aside').forEach(el => {
       if (!el.children.length && !(el.textContent || '').trim()) el.remove();
     });
+  }
+  // The editor emits <p><div>…</div></p>; browsers auto-close the <p>, which breaks spacing. Use a div.
+  clone.querySelectorAll('p').forEach(p => {
+    if (!p.querySelector('div, ul, ol, table, blockquote, pre, h1, h2, h3, h4')) return;
+    const d = document.createElement('div');
+    while (p.firstChild) d.appendChild(p.firstChild);
+    p.replaceWith(d);
+  });
+  // Unwrap chains of single-child divs (the real page nests a dozen deep).
+  for (let pass = 0; pass < 20; pass++) {
+    let changed = false;
+    clone.querySelectorAll('div').forEach(d => {
+      if (d.getAttribute('data-keep-class') || d.children.length !== 1 || d.children[0].tagName !== 'DIV') return;
+      if ([...d.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) return;
+      if (d.children[0].getAttribute('data-keep-class')) return;
+      d.replaceWith(d.children[0]); changed = true;
+    });
+    if (!changed) break;
   }
 
   // Section title: the heading in the section's own header first, then any h1/h2 in the content.
@@ -237,6 +336,6 @@
     ogTitle: og ? og.getAttribute('content') || '' : '',
     html: clone.innerHTML,
     text: (clone.textContent || '').replace(/\s+/g, ' ').trim(),
-    images, videos,
+    images, videos, ignore,
   };
 }
