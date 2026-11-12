@@ -3,7 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-555)](#installing)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Tests](https://github.com/devinklepp/metafy-archiver/actions/workflows/test.yml/badge.svg)](https://github.com/devinklepp/metafy-archiver/actions/workflows/test.yml)
+[![Tests](https://github.com/DevinKlepp/metafy-archiver/actions/workflows/test.yml/badge.svg)](https://github.com/DevinKlepp/metafy-archiver/actions/workflows/test.yml)
 
 metafy-archiver keeps offline copies of the [Metafy](https://metafy.gg) guides you have paid for:
 one PDF per guide with every section and image, and the Metafy-hosted videos saved alongside as
@@ -78,7 +78,7 @@ Download the project (the green **Code** button on GitHub, then **Download ZIP**
 or clone it:
 
 ```sh
-git clone https://github.com/devinklepp/metafy-archiver.git
+git clone https://github.com/DevinKlepp/metafy-archiver.git
 cd metafy-archiver
 ```
 
