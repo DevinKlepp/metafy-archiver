@@ -1,4 +1,4 @@
-# One-time setup for Windows (run in PowerShell from this folder):  .\setup.ps1
+# One-time setup for Windows. Run .\setup.cmd (which calls this) in PowerShell from this folder.
 # Creates a private Python environment in .venv, installs the dependencies and the browser.
 $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot

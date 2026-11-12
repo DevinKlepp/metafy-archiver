@@ -92,16 +92,15 @@ Then run the setup once.
 
 ### Windows
 
-In PowerShell:
+Double-click `setup.cmd`, or in PowerShell:
 
 ```powershell
-.\setup.ps1
+.\setup.cmd
 ```
 
-> [!NOTE]
-> The Windows script follows the same steps as the macOS one but has not yet been exercised on a
-> Windows machine. If it misbehaves, use the manual steps below and run `archive.cmd` instead of
-> `./archive`.
+`setup.cmd` just runs `setup.ps1` in a way that works even when the project came as a ZIP:
+Windows marks files extracted from a download as "from the internet" and otherwise refuses to run
+the script ("not digitally signed").
 
 ### By hand
 
@@ -218,6 +217,7 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | Videos are kept as links only | The run says ffmpeg was not found. Re-run `./setup.sh`, or install ffmpeg yourself (`brew install ffmpeg` on a Mac). |
 | The wrong part of the page is captured | Pass `--selector` with a CSS selector for the guide body, for example `--selector article`. |
 | `./setup.sh: Permission denied` | Run `bash setup.sh` instead; it restores the permissions. |
+| Windows: `setup.ps1 is not digitally signed` | Run `.\setup.cmd` instead, which handles this, or `Unblock-File setup.ps1` once in PowerShell. |
 | Linux: Chromium fails to start with "missing dependencies" | Run `.venv/bin/python -m playwright install-deps chromium` once (needs sudo), then try again. On a Linux release newer than Playwright supports, that command refuses; install the libraries it lists with your package manager, or install Google Chrome, which the archiver prefers anyway. |
 | Google Chrome is not installed | Nothing to do; the bundled Chromium is used automatically. |
 | Odd characters in the terminal on Windows | Cosmetic. Use Windows Terminal, or ignore it; files are unaffected. |
