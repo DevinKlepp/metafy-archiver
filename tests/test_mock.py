@@ -115,11 +115,13 @@ def test_archive(tmp_path: Path) -> None:
 
                 results = {}
                 for base in sorted(found):
+                    args.theme = "light" if "xyz789" in base else "dark"  # cover both themes
                     res = ma.archive_guide(ctx, page, base, out, args, ffmpeg=ffmpeg)
                     assert res, base
                     ma.render_pdf(pw, res["dir"], res["pdf"], res["title"], args.paper)
                     results[base.rsplit("/", 1)[-1]] = res
 
+                args.theme = "dark"
                 # Snapshot the first run's outputs; the re-run below overwrites them.
                 first = results["mock-guide-abc123"]["dir"]
                 first_src, first_html = (first / "source.json").read_text(), (first / "guide.html").read_text()
@@ -222,8 +224,13 @@ def test_archive(tmp_path: Path) -> None:
     # Cover page carries the author, section and video counts; first archive has no change report.
     assert "By Mock Coach" in html and "3 sections" in html and "videos" in html
     assert src["changes"] is None and "Changes since" not in html
-    # Same title, different guide: separate folder, nothing overwritten.
+    # Themes: dark by default with Metafy's page colour and a CSS footer; light on request.
+    assert "data-theme='dark'" in html and "--bg: #07070a" in html and 'counter(page) " / " counter(pages)' in html
+    assert src["theme"] == "dark"
     other = results["mock-guide-xyz789"]
+    other_html = (other["dir"] / "guide.html").read_text()
+    assert "data-theme='light'" in other_html and "--bg: #ffffff" in other_html
+    # Same title, different guide: separate folder, nothing overwritten.
     assert other["dir"] != main["dir"] and other["dir"].name == "Mock Guide (mock-guide-xyz789)"
     assert (main["dir"] / "source.json").exists() and (other["dir"] / "source.json").exists()
     assert not list(out.glob(".partial-*"))

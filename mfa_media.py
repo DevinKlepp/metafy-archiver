@@ -244,13 +244,13 @@ def download_video(ffmpeg: str, url: str, dest: Path, referer: str,
 
 # ----------------------------------------------------------------------------- images
 
-def shrink_image(path: Path, max_px: int) -> Path:
+def shrink_image(path: Path, max_px: int, bg: tuple[int, int, int] = (255, 255, 255)) -> Path:
     """Downscale to max_px on the long side and re-encode for a sane PDF size. Returns the final path.
 
     Screenshots pasted into guides are often 3000 px PNGs of several MB each; they are what made
     a 23-section guide a 100 MB PDF. Chromium's PDF writer also cannot embed WebP and stores it as
     raw pixels, so WebP is always re-encoded. Mostly-opaque art with transparent corners (card
-    images) is flattened onto the white page as JPEG; genuinely transparent graphics stay PNG.
+    images) is flattened onto the page colour `bg` as JPEG; genuinely transparent graphics stay PNG.
     """
     if max_px <= 0 or Image is None or path.suffix.lower() in (".svg", ".gif", ".avif"):
         return path
@@ -272,8 +272,8 @@ def shrink_image(path: Path, max_px: int) -> Path:
             a = img.getchannel("A")
             opaque = a.histogram()[255] / (a.size[0] * a.size[1])
             if opaque >= 0.85:
-                bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-                img = Image.alpha_composite(bg, img.convert("RGBA")).convert("RGB")
+                page_bg = Image.new("RGBA", img.size, (*bg, 255))
+                img = Image.alpha_composite(page_bg, img.convert("RGBA")).convert("RGB")
                 alpha = False
         if fmt in ("PNG", "WEBP") and not alpha:
             out = path.with_suffix(".jpg")
@@ -304,8 +304,8 @@ def http_get(url: str, headers: dict) -> tuple[bytes, str]:
 class ImageStore:
     """Downloads a guide's images into one folder, once each, deduplicated by URL and by content."""
 
-    def __init__(self, ctx, img_dir: Path, max_px: int, workers: int = 6):
-        self.ctx, self.dir, self.max_px, self.workers = ctx, img_dir, max_px, workers
+    def __init__(self, ctx, img_dir: Path, max_px: int, bg: tuple[int, int, int] = (255, 255, 255), workers: int = 6):
+        self.ctx, self.dir, self.max_px, self.bg, self.workers = ctx, img_dir, max_px, bg, workers
         self.by_url: dict[str, str | None] = {}
         self.by_hash: dict[str, str] = {}
         self.n = 0
@@ -349,7 +349,7 @@ class ImageStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / f"{self.n:03d}-{digest[:8]}{ext}"
         path.write_bytes(body)
-        rel = f"images/{shrink_image(path, self.max_px).name}"
+        rel = f"images/{shrink_image(path, self.max_px, self.bg).name}"
         self.by_hash[digest] = rel
         return rel
 

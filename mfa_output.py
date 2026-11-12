@@ -9,43 +9,78 @@ from pathlib import Path
 
 from mfa_common import launch_or_install
 
-CSS = """
-@page { margin: 18mm 16mm; }
+# Colours sampled from metafy.gg (dark) and a plain paper look (light). Values are CSS colours;
+# "bg_rgb" is the same page background as an RGB tuple for flattening transparent images.
+THEMES = {
+    "dark": {
+        "bg": "#07070a", "bg_rgb": (7, 7, 10), "fg": "#c0c0d1", "heading": "#ffffff", "muted": "#9494a8",
+        "link": "#94f094", "card": "#14141a", "card2": "#1e1e27", "border": "#2a2a36", "code": "#1e1e27",
+        "accent": "#94f094", "warn": "#f2be5c", "bad": "#f28b82", "badge": "#2a2a36", "badge_fg": "#c0c0d1",
+        "changes_bg": "#1c1a10", "missing_bg": "#1f1113",
+    },
+    "light": {
+        "bg": "#ffffff", "bg_rgb": (255, 255, 255), "fg": "#1a1a1a", "heading": "#111111", "muted": "#555555",
+        "link": "#1a55c4", "card": "#f2f6fc", "card2": "#f3f3f3", "border": "#c9ced6", "code": "#f3f3f3",
+        "accent": "#1d6b2f", "warn": "#8a6d00", "bad": "#993333", "badge": "#e4e9f2", "badge_fg": "#334455",
+        "changes_bg": "#fdf8e3", "missing_bg": "#fff5f5",
+    },
+}
+DEFAULT_THEME = "dark"
+
+CSS_TEMPLATE = """
+:root { --bg: %(bg)s; --fg: %(fg)s; --heading: %(heading)s; --muted: %(muted)s; --link: %(link)s;
+        --card: %(card)s; --card2: %(card2)s; --border: %(border)s; --code: %(code)s; --accent: %(accent)s;
+        --warn: %(warn)s; --bad: %(bad)s; --badge: %(badge)s; --badge-fg: %(badge_fg)s;
+        --changes-bg: %(changes_bg)s; --missing-bg: %(missing_bg)s; }
+@page { size: %(paper)s; margin: 18mm 16mm; background: var(--bg);
+        @bottom-left { content: "%(footer)s"; color: var(--muted); font: 8pt -apple-system, "Helvetica Neue", Arial, sans-serif; }
+        @bottom-right { content: counter(page) " / " counter(pages); color: var(--muted); font: 8pt -apple-system, "Helvetica Neue", Arial, sans-serif; } }
 * { box-sizing: border-box; }
-body { font: 11.5pt/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; color: #1a1a1a;
+html { background: var(--bg); }
+body { font: 11.5pt/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; color: var(--fg); background: var(--bg);
        max-width: 820px; margin: 0 auto; padding: 0 12px; overflow-wrap: anywhere; }
-h1, h2, h3, h4 { line-height: 1.25; break-after: avoid; margin: 1.4em 0 .5em; }
+@media screen { body { padding: 32px 24px; } }
+h1, h2, h3, h4 { color: var(--heading); line-height: 1.25; break-after: avoid; margin: 1.4em 0 .5em; }
 h1 { font-size: 22pt; } h2 { font-size: 16pt; } h3 { font-size: 13pt; }
-img, svg { max-width: 100%; max-height: 120mm; width: auto; height: auto; display: block; margin: 10px 0; break-inside: avoid; }
-a { color: #1a55c4; }
-pre, code { font: 9.5pt/1.4 Menlo, monospace; background: #f3f3f3; }
+strong { color: var(--heading); }
+img, svg { max-width: 100%%; max-height: 120mm; width: auto; height: auto; display: block; margin: 10px 0; break-inside: avoid; border-radius: 6px; }
+a { color: var(--link); }
+pre, code { font: 9.5pt/1.4 Menlo, monospace; background: var(--code); color: var(--fg); border-radius: 4px; }
 pre { padding: 10px; white-space: pre-wrap; }
-table { border-collapse: collapse; margin: 12px 0; width: 100%; }
-td, th { border: 1px solid #bbb; padding: 5px 8px; text-align: left; vertical-align: top; }
-blockquote { border-left: 3px solid #999; margin: 12px 0; padding: 2px 14px; color: #444; }
+code { padding: 0 4px; }
+table { border-collapse: collapse; margin: 12px 0; width: 100%%; }
+td, th { border: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+th { background: var(--card2); color: var(--heading); }
+blockquote { border-left: 3px solid var(--muted); margin: 12px 0; padding: 2px 14px; color: var(--muted); }
+hr { border: 0; border-top: 1px solid var(--border); }
 .mfa-cover { padding: 60px 0 20px; }
 .mfa-cover h1 { font-size: 30pt; margin: 0 0 12px; }
-.mfa-meta { color: #555; font-size: 10pt; line-height: 1.7; }
-.mfa-changes { border: 1px solid #d9c36a; background: #fdf8e3; padding: 8px 12px; margin: 14px 0; font-size: 10pt; }
+.mfa-meta { color: var(--muted); font-size: 10pt; line-height: 1.7; }
+.mfa-changes { border: 1px solid var(--warn); background: var(--changes-bg); padding: 8px 12px; margin: 14px 0; font-size: 10pt; border-radius: 6px; }
 .mfa-toc li { margin: 3px 0; }
-.mfa-toc .mfa-flag { font-size: 8.5pt; font-weight: 600; color: #8a6d00; margin-left: 6px; }
+.mfa-toc .mfa-flag { font-size: 8.5pt; font-weight: 600; color: var(--warn); margin-left: 6px; }
 .mfa-chapter { break-before: page; }
-.mfa-chapter-src { color: #666; font-size: 9pt; margin-top: -4px; }
-.mfa-video { border: 1px solid #9ab; border-left: 5px solid #1a55c4; background: #f2f6fc;
-             padding: 8px 12px; margin: 12px 0; font-size: 10.5pt; break-inside: avoid; }
+.mfa-chapter-src { color: var(--muted); font-size: 9pt; margin-top: -4px; }
+.mfa-video { border: 1px solid var(--border); border-left: 5px solid var(--accent); background: var(--card);
+             padding: 8px 12px; margin: 12px 0; font-size: 10.5pt; break-inside: avoid; border-radius: 6px; }
 .mfa-video img { max-height: 220px; width: auto; }
-.mfa-saved { color: #1d6b2f; font-weight: 600; }
-.mfa-gone { color: #933; }
-.mfa-missing { border: 1px dashed #c66; color: #933; background: #fff5f5; padding: 8px 12px;
-               margin: 10px 0; font-size: 9.5pt; }
-.mfa-comment { border-left: 3px solid #cbd; background: #fafafa; padding: 6px 12px; margin: 8px 0;
-               font-size: 10pt; break-inside: avoid; }
-.mfa-comment time { color: #777; font-size: 9pt; margin-left: 6px; }
+.mfa-saved { color: var(--accent); font-weight: 600; }
+.mfa-gone { color: var(--bad); }
+.mfa-missing { border: 1px dashed var(--bad); color: var(--bad); background: var(--missing-bg); padding: 8px 12px;
+               margin: 10px 0; font-size: 9.5pt; border-radius: 6px; }
+.mfa-comment { border-left: 3px solid var(--border); background: var(--card); padding: 6px 12px; margin: 8px 0;
+               font-size: 10pt; break-inside: avoid; border-radius: 0 6px 6px 0; }
+.mfa-comment time { color: var(--muted); font-size: 9pt; margin-left: 6px; }
 .mfa-vlist { font-size: 10pt; }
 .mfa-vlist li { margin: 4px 0; }
 .mfa-host { display: inline-block; font-size: 8.5pt; font-weight: 600; padding: 0 6px; border-radius: 3px;
-            background: #e4e9f2; color: #345; margin-right: 6px; vertical-align: middle; }
+            background: var(--badge); color: var(--badge-fg); margin-right: 6px; vertical-align: middle; }
 """
+
+
+def css_for(theme: str, title: str, paper: str = "Letter") -> str:
+    footer = title.replace("\\", "\\\\").replace('"', '\\"')[:80]
+    return CSS_TEMPLATE % {**THEMES[theme], "paper": paper, "footer": footer}
 
 
 def place_images(body: str, image_urls: list[str], saved: list[str | None]) -> str:
@@ -120,14 +155,16 @@ def changes_text(ch: dict | None) -> str:
 
 
 def write_outputs(out_dir: Path, title: str, author: str, base: str, chapters: list[dict],
-                  now: dt.datetime, pdf_file: str, changes: dict | None = None) -> None:
+                  now: dt.datetime, pdf_file: str, changes: dict | None = None,
+                  theme: str = DEFAULT_THEME, paper: str = "Letter") -> None:
     esc = html.escape
     stamp = now.strftime("%Y-%m-%d %H:%M")
     n = len(chapters)
     n_videos = sum(len(c["videos"]) for c in chapters)
     n_saved = sum(1 for c in chapters for v in c["videos"] if v.get("file"))
     parts = [
-        f"<!doctype html><html><head><meta charset='utf-8'><title>{esc(title)}</title><style>{CSS}</style></head><body>",
+        f"<!doctype html><html data-theme='{theme}'><head><meta charset='utf-8'><title>{esc(title)}</title>"
+        f"<style>{css_for(theme, title, paper)}</style></head><body>",
         f"<div class='mfa-cover'><h1>{esc(title)}</h1><div class='mfa-meta'>"
         + (f"By {esc(author)}<br>" if author else "")
         + f"Source: <a href='{esc(base)}'>{esc(base)}</a><br>"
@@ -174,26 +211,22 @@ def write_outputs(out_dir: Path, title: str, author: str, base: str, chapters: l
     (out_dir / "videos.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     (out_dir / "source.json").write_text(json.dumps(
         {"title": title, "author": author, "url": base, "archived": now.isoformat(timespec="minutes"),
-         "pdf": pdf_file, "changes": changes,
+         "pdf": pdf_file, "theme": theme, "changes": changes,
          "sections": [{"title": c["title"], "url": c["url"], "hash": c["hash"], "flag": c.get("flag", ""),
                        "videos": c["videos"]} for c in chapters]},
         indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def render_pdf(pw, out_dir: Path, pdf_path: Path, title: str, paper: str) -> None:
-    """Render the saved guide.html to PDF with a separate headless browser (no login needed)."""
+    """Render the saved guide.html to PDF with a separate headless browser (no login needed).
+
+    Page size, margins, background and the footer (title, page x / y) all come from the @page
+    rules in the HTML, which is what lets the dark theme cover the whole sheet.
+    """
     browser = launch_or_install(lambda: pw.chromium.launch(headless=True))
     try:
         page = browser.new_page()
         page.goto((out_dir / "guide.html").as_uri(), wait_until="load", timeout=120_000)
-        page.pdf(
-            path=str(pdf_path), format=paper, print_background=True,
-            display_header_footer=True,
-            header_template="<span></span>",
-            footer_template=("<div style='font-size:8px;color:#777;width:100%;padding:0 16mm;display:flex;"
-                             "justify-content:space-between'><span>" + html.escape(title) +
-                             "</span><span><span class='pageNumber'></span> / <span class='totalPages'></span></span></div>"),
-            margin={"top": "18mm", "bottom": "18mm", "left": "16mm", "right": "16mm"},
-        )
+        page.pdf(path=str(pdf_path), format=paper, print_background=True, prefer_css_page_size=True)
     finally:
         browser.close()

@@ -27,6 +27,7 @@ and everything stays in a `guides/` folder on your computer.
   - [Running again](#running-again)
 - [Configuration](#configuration)
   - [Videos](#videos)
+  - [Look](#look)
   - [Images and PDF size](#images-and-pdf-size)
   - [All options](#all-options)
 - [Troubleshooting](#troubleshooting)
@@ -41,7 +42,7 @@ For each guide, a folder `guides/<guide title>/`:
 
 | File | What it is |
 | --- | --- |
-| `<guide title> - 2026-11-11 2335.pdf` | The whole guide as one PDF: cover, table of contents, every section, images, and a video list per section. Each run adds a new timestamped PDF and keeps the old one. |
+| `<guide title> - 2026-11-11 2335.pdf` | The whole guide as one PDF in Metafy's dark look (or `--theme light`): cover, table of contents, every section, images, and a video list per section. Each run adds a new timestamped PDF and keeps the old one. |
 | `videos/` | Metafy-hosted videos as MP4 (matchup videos, coaching recordings and so on). YouTube, Vimeo and Twitch videos are never downloaded; the PDF links to them. |
 | `guide.html` | The same content as a web page. |
 | `images/` | Every image, downscaled so the PDF stays a sensible size. |
@@ -165,6 +166,12 @@ ten seconds on a recent Mac.
 > YouTube, Vimeo and Twitch videos are never downloaded, by design. They are stable links and
 > the PDF points at them.
 
+### Look
+
+PDFs use a dark theme in Metafy's own colours by default, which is what the guides look like on
+the site and is easier on the eyes on a screen. `--theme light` gives plain black-on-white pages
+for printing. Images with transparent edges are flattened onto whichever page colour is in use.
+
 ### Images and PDF size
 
 Images are downscaled to 1600 px on the long side and re-encoded as JPEG, which turns a 100 MB
@@ -180,6 +187,7 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | `--video-max-height PX` | stream variant to take, default 720 |
 | `--compress-videos` | re-encode videos to at most 30 fps and the height above |
 | `--max-image-px N` | image size limit, default 1600; `0` keeps originals |
+| `--theme light` | plain paper look instead of the default dark Metafy theme |
 | `--paper A4` | PDF paper size (default Letter) |
 | `-o DIR` | output folder (default `guides/`) |
 | `--login` | log in again even though a session is saved |

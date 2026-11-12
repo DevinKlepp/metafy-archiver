@@ -56,6 +56,12 @@ def run(tmp: Path) -> None:
     corner = Image.open(out).getpixel((2, 2))
     assert all(c > 240 for c in corner), corner  # transparent corner became white
 
+    # 5b. On a dark theme the corners are flattened onto the dark page colour instead.
+    p = tmp / "card-dark.webp"; card(600, 837).save(p, "WEBP")
+    out = mm.shrink_image(p, 1600, bg=(7, 7, 10))
+    corner = Image.open(out).getpixel((2, 2))
+    assert all(c < 24 for c in corner), corner
+
     # 6. A genuinely transparent graphic (mostly transparent) stays PNG.
     p = tmp / "logo.png"
     im = Image.new("RGBA", (400, 400), (0, 0, 0, 0)); ImageDraw.Draw(im).ellipse((150, 150, 250, 250), fill=(0, 0, 255, 255)); im.save(p)

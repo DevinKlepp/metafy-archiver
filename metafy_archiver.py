@@ -33,7 +33,8 @@ from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, hash_text, human_du
                         launch_or_install, log, pdf_name, safe_name, strip_site)
 from mfa_media import (ImageStore, Image, download_video, find_ffmpeg, is_media_url, link_expiry,  # noqa: F401
                        merge_videos, never_download, shrink_image, stable_key, video_host)
-from mfa_output import diff_sections, changes_text, place_images, place_videos, render_pdf, write_outputs  # noqa: F401
+from mfa_output import (DEFAULT_THEME, THEMES, changes_text, diff_sections, place_images, place_videos,  # noqa: F401
+                        render_pdf, write_outputs)
 
 HERE = Path(__file__).resolve().parent
 PROFILE_DIR = HERE / ".browser-profile"
@@ -171,7 +172,8 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     nav_titles: dict[str, str] = {}  # section URL -> its label in the sidebar
     tmp_dir = out_root / f".partial-{hashlib.sha1(base.encode()).hexdigest()[:8]}"
     shutil.rmtree(tmp_dir, ignore_errors=True)  # left over from an interrupted run
-    images = ImageStore(ctx, tmp_dir / "images", args.max_image_px)
+    theme = getattr(args, "theme", DEFAULT_THEME)
+    images = ImageStore(ctx, tmp_dir / "images", args.max_image_px, bg=THEMES[theme]["bg_rgb"])
     guide_title = author = ""
     video_files: dict[str, Path] = {}  # rel path -> where the file currently is
     consumed: set[Path] = set()  # earlier files replaced by a re-encoded copy
@@ -329,7 +331,8 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
 
     now = dt.datetime.now()
     pdf = out_dir / pdf_name(guide_title, now)
-    write_outputs(out_dir, guide_title, author, base, chapters, now, pdf.name, changes)
+    write_outputs(out_dir, guide_title, author, base, chapters, now, pdf.name, changes,
+                  theme=theme, paper=getattr(args, "paper", "Letter"))
     return {"dir": out_dir, "pdf": pdf, "title": guide_title, "changes": changes}
 
 
@@ -416,6 +419,8 @@ def main() -> int:
     ap.add_argument("--match", help="only archive guides whose URL matches this regex")
     ap.add_argument("--selector", help="CSS selector of the guide content, if auto-detection grabs the wrong area")
     ap.add_argument("--paper", default="Letter", choices=["Letter", "A4"], help="PDF paper size")
+    ap.add_argument("--theme", default=DEFAULT_THEME, choices=sorted(THEMES),
+                    help="PDF look: 'dark' matches Metafy (default), 'light' is plain paper")
     ap.add_argument("--max-image-px", type=int, default=1600,
                     help="downscale images to this many pixels on the long side; 0 keeps originals (default 1600)")
     ap.add_argument("--no-videos", action="store_true", help="don't download Metafy-hosted videos, keep links only")
