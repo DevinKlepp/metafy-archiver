@@ -1,0 +1,36 @@
+$ ./archive "https://metafy.gg/guides/view/its-a-miracle-i-eb05-lWda8lXM30b"
+
+[1/1] https://metafy.gg/guides/view/its-a-miracle-i-eb05-lWda8lXM30b
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b
+    3,002 chars, 1/1 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/1-do-you-believe-in-miracles-vNQFiiQjHnA
+    2,903 chars, 0/0 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/2-meta-analysis-A4FYc8Fm1YH
+    6,107 chars, 1/1 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/3-the-decklist-SJewAyo8aFe
+    24,760 chars, 16/16 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/4-general-deck-strategy-6t1bMOLfaxk
+    31,318 chars, 12/12 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/5-the-matchups-bible-LiWuE4mBnju
+    69,074 chars, 20/20 images, 0 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/wisdom-path-masterclass-25-10-by-enricomar-awRWZ2NRlac
+    114 chars, 1/1 images, 1 videos (0 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/rg-luffy-miracle-matchup-0BIH9JvDCCk
+    downloading Metafy video -> 16-RG Luffy miracle matchup.mp4
+      using the 720p variant
+~      ... 00:01:50 of footage saved, 20s elapsed
+~      ... 00:05:35 of footage saved, 41s elapsed
+    video saved: 16-RG Luffy miracle matchup.mp4 (52 MB, 00:09:17, 60s)
+    88 chars, 0/0 images, 1 videos (1 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/rocks-matchup-wXYBd4fVEoV
+    downloading Metafy video -> 17-Rocks matchup.mp4
+      using the 720p variant
+~      ... 00:06:05 of footage saved, 20s elapsed
+    video saved: 17-Rocks matchup.mp4 (48 MB, 00:07:52, 24s)
+    77 chars, 0/0 images, 1 videos (1 saved)
+  - /guides/view/its-a-miracle-i-eb05-lWda8lXM30b/testing-session-3-02-11-Dm7yR2u30pj
+    2,732 chars, 4/4 images, 1 videos (0 saved)
+  saved: ~/metafy-archiver/guides/It's a MIRACLE! I EB05/It's a MIRACLE! I EB05 - 2026-11-11 2335.pdf
+  PDF 13.6 MB · images 12.8 MB · videos 247.1 MB · 3m 02s
+
+Done in 3m 07s. 1 archived, 0 skipped, 0 failed. Output: ~/metafy-archiver/guides

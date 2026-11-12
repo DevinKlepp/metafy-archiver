@@ -316,16 +316,25 @@
     if (pick) guideTitle = pick.innerText.trim().split('\n')[0];
   }
 
-  // The coach: Metafy profiles live at /@handle. Prefer a link whose text is a name rather than "Guides".
+  // The coach. Metafy profiles live at /@handle; links inside the guide body come first because the
+  // site nav (when logged in) also links to communities and other coaches. Link text that is a
+  // menu label rather than a name is ignored, and a "Created by <name>" pair in the body wins.
+  const GENERIC = /^(guides?|sessions?|coaching|profile|view profile|community|communities|events?|recordings?|members?|home)$/i;
   let author = '', handle = '';
-  for (const a of document.querySelectorAll('a[href]')) {
-    let m;
-    try { m = new URL(a.href).pathname.match(/^\/@([\w.-]+)(\/|$)/); } catch (e) { continue; }
-    if (!m) continue;
-    handle = handle || '@' + m[1];
-    const t = (a.innerText || '').trim().split('\n')[0];
-    if (t && !/^(guides?|sessions?|coaching|profile|view profile)$/i.test(t) && !author) author = t;
+  for (const scope of [root, document]) {
+    for (const a of scope.querySelectorAll('a[href]')) {
+      let m;
+      try { m = new URL(a.href).pathname.match(/^\/@([\w.-]+)(\/|$)/); } catch (e) { continue; }
+      if (!m) continue;
+      handle = handle || '@' + m[1];
+      const t = (a.innerText || '').trim().split('\n')[0];
+      if (t && !GENERIC.test(t) && !author) author = t;
+    }
+    if (handle) break;
   }
+  const byLabel = [...root.querySelectorAll('span, div, p, small')].find(e => /^created by$/i.test((e.textContent || '').trim()));
+  const byName = byLabel && byLabel.nextElementSibling && (byLabel.nextElementSibling.textContent || '').trim().split('\n')[0];
+  if (byName && byName.length < 60) author = byName;
   if (author && handle && author.toLowerCase() !== handle.toLowerCase()) author = author + ' (' + handle + ')';
   author = author || handle;
 
