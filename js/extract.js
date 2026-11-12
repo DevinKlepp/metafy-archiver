@@ -329,6 +329,17 @@
   if (author && handle && author.toLowerCase() !== handle.toLowerCase()) author = author + ' (' + handle + ')';
   author = author || handle;
 
+  // Text used to detect changes between runs: the section's own content, without the Q&A thread
+  // and its relative timestamps ("11 hours ago"), which differ on every visit.
+  const forHash = clone.cloneNode(true);
+  forHash.querySelectorAll('.mfa-comment, time').forEach(e => e.remove());
+  // Review and discussion blocks grow on their own; drop the section each such heading belongs to.
+  forHash.querySelectorAll('h1, h2, h3, h4').forEach(h => {
+    if (/^(reviews?|discussions?|comments?|questions?|ratings?|testimonials?)\b/i.test((h.textContent || '').trim())) {
+      (h.closest('section') || h.parentElement || h).remove();
+    }
+  });
+
   return {
     guideTitle,
     author,
@@ -336,7 +347,7 @@
     docTitle: document.title || '',
     ogTitle: og ? og.getAttribute('content') || '' : '',
     html: clone.innerHTML,
-    text: (clone.textContent || '').replace(/\s+/g, ' ').trim(),
+    text: (forHash.textContent || '').replace(/\s+/g, ' ').trim(),
     images, videos, ignore,
   };
 }

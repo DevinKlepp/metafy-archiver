@@ -63,6 +63,21 @@ def launch_or_install(launch):
         return launch()
 
 
+VOLATILE_RES = [
+    # live counters on a guide's cover: "130+ ratings", "330+ purchases", "758 reviews"
+    re.compile(r"\b\d[\d,.]*\s*\+?\s*(ratings?|purchases?|reviews?|students?|members?|sales|enrolled|views?)\b", re.I),
+    # relative times: "13 hours ago", "a day ago", "just now"
+    re.compile(r"\b(\d+|an?)\s+(second|minute|hour|day|week|month|year)s?\s+ago\b|\bjust now\b|\byesterday\b", re.I),
+]
+
+
+def hash_text(text: str) -> str:
+    """Section text with the bits that change on their own blanked out, so re-runs only report real edits."""
+    for rx in VOLATILE_RES:
+        text = rx.sub("#", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def human_size(n: int | float) -> str:
     for unit in ("B", "KB", "MB", "GB"):
         if n < 1024 or unit == "GB":

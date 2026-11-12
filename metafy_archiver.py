@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
-from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, human_duration, human_size,  # noqa: F401 (re-exported)
+from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, hash_text, human_duration, human_size,  # noqa: F401 (re-exported)
                         launch_or_install, log, pdf_name, safe_name, strip_site)
 from mfa_media import (ImageStore, Image, download_video, find_ffmpeg, is_media_url, link_expiry,  # noqa: F401
                        merge_videos, never_download, shrink_image, stable_key, video_host)
@@ -257,7 +257,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             data = evaluate_retry(page, JS["extract"], {"selector": args.selector, "basePath": base_path})
             guide_title = guide_title or data["guideTitle"]
             author = author or data["author"]
-            digest = hashlib.sha1(data["text"].encode()).hexdigest()
+            digest = hashlib.sha1(hash_text(data["text"]).encode()).hexdigest()
             if digest in text_hashes:
                 log("    same content as an earlier page, skipped")
                 continue

@@ -130,6 +130,8 @@ def test_archive(tmp_path: Path) -> None:
                 main_base = f"{origin}/guides/view/mock-guide-abc123"
                 p2 = site / "guides/view/mock-guide-abc123/2-matchups.html"
                 p2.write_text(p2.read_text().replace("Win rate", "Win percentage"))
+                p1 = site / "guides/view/mock-guide-abc123/1-intro.html"  # only a comment's age changes: not an update
+                p1.write_text(p1.read_text().replace("3 hours ago", "2 days ago"))
                 root = site / "guides/view/mock-guide-abc123.html"
                 root.write_text(root.read_text().replace("<ol>", '<ol><li><a href="/guides/view/mock-guide-abc123/0-preface">0. Preface</a></li>'))
                 (site / "guides/view/mock-guide-abc123/0-preface.html").write_text(
@@ -214,7 +216,7 @@ def test_archive(tmp_path: Path) -> None:
     # Markup clean-up: framework comments gone, Q&A thread as comment blocks, no div inside p,
     # the "Like" button dropped, no deep single-child div chains.
     assert "<!--" not in html.split("<section", 1)[1]
-    assert html.count("class=\"mfa-comment\"") == 2 and "Like</button>" not in html and "<button" not in html
+    assert html.count("class=\"mfa-comment\"") == 3 and "Like</button>" not in html and "<button" not in html
     assert "<p><div" not in html
     assert "<div><div><div>" not in html
     # Cover page carries the author, section and video counts; first archive has no change report.
@@ -252,6 +254,9 @@ def test_archive(tmp_path: Path) -> None:
         assert "214x160" in info or "212x160" in info, info  # scaled from 320x240 to 160 tall
 
     # Pure helpers.
+    assert ma.hash_text("Based on 130+ ratings and 330+ purchases. Posted 13 hours ago. 4x Bonney") == \
+        ma.hash_text("Based on 131+ ratings and 340+ purchases. Posted a day ago. 4x Bonney")
+    assert ma.hash_text("4x Bonney") != ma.hash_text("3x Bonney")  # real edits still count
     assert ma.video_host("https://www.youtube.com/watch?v=x") == "YouTube"
     assert ma.video_host("https://stream.mux.com/abc.m3u8?token=t") == "Metafy"
     assert ma.video_host("https://cdn.metafy.gg/a.webm") == "Metafy"
