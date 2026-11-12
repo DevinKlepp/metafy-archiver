@@ -128,16 +128,78 @@ def find_ffmpeg(override: str | None) -> str | None:
     return None
 
 
-def download_video(ffmpeg: str, url: str, dest: Path, referer: str) -> bool:
-    """Save a stream (HLS/DASH/MP4) to dest as MP4 without re-encoding. Prints progress every 20 s.
+def parse_variants(master: str) -> list[dict]:
+    """The video variants of an HLS master playlist, in playlist order (ffmpeg numbers them the same way)."""
+    out = []
+    for line in master.splitlines():
+        if line.startswith("#EXT-X-STREAM-INF"):
+            attrs = dict(re.findall(r'([A-Z0-9-]+)=("[^"]*"|[^,]*)', line))
+            res = attrs.get("RESOLUTION", "0x0")
+            w, h = (int(x) for x in res.split("x")) if "x" in res else (0, 0)
+            out.append({"index": len(out), "width": w, "height": h,
+                        "bandwidth": int(attrs.get("AVERAGE-BANDWIDTH") or attrs.get("BANDWIDTH") or 0),
+                        "fps": float(attrs.get("FRAME-RATE") or 0)})
+    return out
 
-    ffmpeg picks the highest-bandwidth variant of an HLS master playlist by default.
+
+def choose_variant(variants: list[dict], max_height: int) -> dict | None:
+    """Best variant not taller than max_height; the smallest one if none fits; None if no choice to make."""
+    if len(variants) < 2:
+        return None
+    ok = [v for v in variants if v["height"] and v["height"] <= max_height]
+    pool = ok or sorted(variants, key=lambda v: (v["height"], v["bandwidth"]))[:1]
+    return max(pool, key=lambda v: (v["height"], v["bandwidth"]))
+
+
+def http_opts(url: str, referer: str) -> list[str]:
+    """ffmpeg input options for web URLs; local files reject them."""
+    if not url.lower().startswith(("http://", "https://")):
+        return []
+    return ["-headers", f"Referer: {referer}\r\nOrigin: {referer.rstrip('/')}\r\n", "-user_agent", UA]
+
+
+def probe_fps(ffmpeg: str, url: str, referer: str) -> float:
+    """Highest frame rate among the input's video streams, 0 if unknown."""
+    try:
+        r = subprocess.run([ffmpeg, "-hide_banner", *http_opts(url, referer), "-i", url],
+                           capture_output=True, text=True, timeout=60)
+        return max((float(x) for x in re.findall(r"(\d+(?:\.\d+)?) fps", r.stderr)), default=0.0)
+    except Exception:
+        return 0.0
+
+
+def download_video(ffmpeg: str, url: str, dest: Path, referer: str,
+                   max_height: int = 720, compress: bool = False, max_fps: int = 30) -> bool:
+    """Save a stream (HLS/DASH/MP4) to dest as MP4. Prints progress every 20 s.
+
+    By default the stream is copied without re-encoding, choosing the best HLS variant that is at
+    most max_height tall. With compress=True it is re-encoded with x264 (veryfast, CRF 26), capped
+    at max_fps and max_height; on a recent laptop that takes about a tenth of the video's length
+    and saves roughly a third of the size on 60 fps sources.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
+    vmap = "0:v:0?"
+    if url.split("?")[0].lower().endswith(".m3u8"):
+        try:
+            master = http_get(url, {"Referer": referer})[0].decode("utf-8", "replace")
+            pick = choose_variant(parse_variants(master), max_height)
+            if pick:
+                vmap = f"0:v:{pick['index']}?"
+                log(f"      using the {pick['height']}p variant")
+        except Exception as e:
+            log(f"      (could not read the stream's variant list: {str(e).splitlines()[0][:60]})")
+    codec: list[str] = ["-c", "copy"]
+    if compress:
+        filters = []
+        if probe_fps(ffmpeg, url, referer) > max_fps:
+            filters.append(f"fps={max_fps}")
+        filters.append(f"scale=-2:min({max_height}\\,ih)")
+        codec = ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
+                 "-pix_fmt", "yuv420p", "-c:a", "copy"]
     cmd = [ffmpeg, "-y", "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
-           "-headers", f"Referer: {referer}\r\nOrigin: {referer.rstrip('/')}\r\n", "-user_agent", UA,
-           "-i", url, "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", str(part)]
+           *http_opts(url, referer),
+           "-i", url, "-map", vmap, "-map", "0:a:0?", *codec, "-movflags", "+faststart", "-f", "mp4", str(part)]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except OSError as e:
@@ -153,7 +215,7 @@ def download_video(ffmpeg: str, url: str, dest: Path, referer: str) -> bool:
             last = time.time()
     err = proc.stderr.read()
     rc = proc.wait()
-    if rc != 0 or not part.exists() or part.stat().st_size < 10_000:
+    if rc != 0 or not part.exists() or part.stat().st_size < 5_000:
         log(f"    video failed (ffmpeg exit {rc}): {err.strip().splitlines()[-1][:160] if err.strip() else 'no output'}")
         part.unlink(missing_ok=True)
         return False

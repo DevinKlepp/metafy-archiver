@@ -2,10 +2,21 @@
 <nav><a href="/">Home</a> <a href="/guides/discover">Discover</a> <a href="/logout">Log out</a></nav>
 <main>
   <h1>Your guides</h1>
-  <ul>
+  <ul id="list">
     <li><a href="/guides/view/mock-guide-abc123">Mock Guide</a></li>
     <li><a href="/guides/view/mock-guide-abc123/1-intro">Mock Guide (chapter link)</a></li>
-    <li><a href="/guides/view/mock-guide-xyz789">Mock Guide</a></li>
     <li><a href="/guides/view/mock-guide-abc123/reviews">Reviews</a></li>
   </ul>
+  <button id="more">Load more</button>
+  <script>
+    // Like the real purchases page: the rest of the library appears only after "Load more".
+    document.getElementById('more').addEventListener('click', () => {
+      setTimeout(() => {
+        const li = document.createElement('li');
+        li.innerHTML = '<a href="/guides/view/mock-guide-xyz789">Mock Guide</a>';
+        document.getElementById('list').appendChild(li);
+        document.getElementById('more').remove();
+      }, 200);
+    });
+  </script>
 </main></body></html>

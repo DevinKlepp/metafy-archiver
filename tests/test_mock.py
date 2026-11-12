@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import metafy_archiver as ma  # noqa: E402
+import mfa_media as mm  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parent / "fixture"
 
@@ -88,17 +89,17 @@ def test_archive(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir()
     args = Namespace(selector=None, max_pages=50, delay=0, paper="Letter", match=None,
-                     max_image_px=1600, no_videos=False)
+                     max_image_px=1600, no_videos=False, video_max_height=720, compress_videos=False)
 
     # The Mux URL in the fixture points at the real stream.mux.com; don't hit it from a test.
     real_download = ma.download_video
     attempted: list[str] = []
 
-    def fake_download(exe, url, dest, referer):
+    def fake_download(exe, url, dest, referer, **kw):
         attempted.append(url)
         if "stream.mux.com" in url:
             return False
-        return real_download(exe, url, dest, referer)
+        return real_download(exe, url, dest, referer, **kw)
     ma.download_video = fake_download
 
     from playwright.sync_api import sync_playwright
@@ -217,6 +218,22 @@ def test_archive(tmp_path: Path) -> None:
     assert ma.previous_pdf(entry, out) == main["pdf"] and ma.previous_dir(entry, out) == main["dir"]
     assert ma.previous_pdf(str(main["dir"]), out) is not None  # legacy absolute-path state entry
     assert ma.previous_pdf({"pdf": "nope/nope.pdf"}, out) is None
+
+    # Video variant selection and compression.
+    master = ('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=933900,RESOLUTION=1280x720,FRAME-RATE=60\nhi.m3u8\n'
+              '#EXT-X-STREAM-INF:BANDWIDTH=441100,RESOLUTION=854x480\nmid.m3u8\n'
+              '#EXT-X-STREAM-INF:BANDWIDTH=194700,RESOLUTION=480x270\nlo.m3u8\n')
+    vs = mm.parse_variants(master)
+    assert [v["height"] for v in vs] == [720, 480, 270] and vs[0]["fps"] == 60
+    assert mm.choose_variant(vs, 720)["index"] == 0 and mm.choose_variant(vs, 480)["index"] == 1
+    assert mm.choose_variant(vs, 100)["index"] == 2 and mm.choose_variant(vs[:1], 480) is None
+    if have_clip:
+        small = tmp_path / "small.mp4"
+        assert ffmpeg and mm.download_video(ffmpeg, str((site / "media" / "clip.mp4").resolve()), small, "http://x/",
+                                            max_height=160, compress=True)
+        from PIL import Image as _I  # noqa: F401 (Pillow already required)
+        info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(small)], capture_output=True, text=True).stderr
+        assert "214x160" in info or "212x160" in info, info  # scaled from 320x240 to 160 tall
 
     # Pure helpers.
     assert ma.video_host("https://www.youtube.com/watch?v=x") == "YouTube"

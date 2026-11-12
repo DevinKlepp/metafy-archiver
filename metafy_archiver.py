@@ -40,6 +40,7 @@ HERE = Path(__file__).resolve().parent
 PROFILE_DIR = HERE / ".browser-profile"
 STATE_FILE = HERE / ".state.json"
 START_URL = "https://metafy.gg/"
+LIBRARY_URL = "https://metafy.gg/account/purchases/guides"  # where Metafy lists the guides you bought
 MEDIA_RE = re.compile(
     r"\.(m3u8|mpd|mp4|webm|mov)(\?|$)|stream\.mux\.com|videodelivery\.net|cloudflarestream\.com"
     r"|player\.vimeo\.com/video|youtube(-nocookie)?\.com/embed",
@@ -211,8 +212,9 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             v["file"] = rel
             video_files[rel] = prev_videos / name
             return
-        log(f"    downloading {v['host']} video -> {name}")
-        if download_video(ffmpeg, v["url"], tmp_dir / "videos" / name, referer):
+        log(f"    downloading {v['host']} video -> {name}" + (" (compressing)" if args.compress_videos else ""))
+        if download_video(ffmpeg, v["url"], tmp_dir / "videos" / name, referer,
+                          max_height=args.video_max_height, compress=args.compress_videos):
             v["file"] = rel
             video_files[rel] = tmp_dir / "videos" / name
         else:
@@ -317,9 +319,36 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     return {"dir": out_dir, "pdf": pdf, "title": guide_title, "changes": changes}
 
 
+LOAD_MORE_RE = r"^(load|show|see|view)\s+(more|all)(\s+guides)?$"
+
+
+def expand_listing(page: Page, max_clicks: int = 50) -> int:
+    """Click 'Load more' style buttons until the page stops growing. Returns the number of clicks."""
+    clicks = 0
+    for _ in range(max_clicks):
+        before = page.evaluate("() => document.querySelectorAll('a[href]').length")
+        clicked = page.evaluate(
+            """re => { const rx = new RegExp(re, 'i');
+                      const b = [...document.querySelectorAll('button, a, [role=button]')]
+                        .find(e => rx.test((e.innerText || '').trim()) && e.getBoundingClientRect().height > 0);
+                      if (!b) return false; b.scrollIntoView(); b.click(); return true; }""", LOAD_MORE_RE)
+        if not clicked:
+            break
+        clicks += 1
+        try:
+            page.wait_for_function("n => document.querySelectorAll('a[href]').length > n", arg=before, timeout=8_000)
+        except Exception:
+            break  # the button is still there but nothing new appeared
+    if clicks:
+        log(f"  (clicked 'Load more' {clicks} time{'s' if clicks != 1 else ''})")
+        settle(page, expand=False)
+    return clicks
+
+
 def find_guides(page: Page, args) -> list[tuple[str, str]]:
     """Collect guide links from whatever page the user has opened (their library)."""
     settle(page, expand=False)
+    expand_listing(page)
     found: dict[str, str] = {}
     for link in evaluate_retry(page, JS["links"]):
         base = guide_base(link["href"])
@@ -376,6 +405,10 @@ def main() -> int:
     ap.add_argument("--max-image-px", type=int, default=1600,
                     help="downscale images to this many pixels on the long side; 0 keeps originals (default 1600)")
     ap.add_argument("--no-videos", action="store_true", help="don't download Metafy-hosted videos, keep links only")
+    ap.add_argument("--video-max-height", type=int, default=720, metavar="PX",
+                    help="pick the stream variant at most this tall, e.g. 480 (default 720); no re-encoding")
+    ap.add_argument("--compress-videos", action="store_true",
+                    help="re-encode videos with x264 at up to 30 fps and --video-max-height (about a third smaller, slower)")
     ap.add_argument("--ffmpeg", help="path to ffmpeg (default: PATH, then the imageio-ffmpeg package)")
     ap.add_argument("--delay", type=float, default=1.5, help="seconds to wait between pages (default 1.5)")
     ap.add_argument("--max-pages", type=int, default=300, help="max sections per guide")
@@ -410,12 +443,12 @@ def main() -> int:
                     targets.append((guide_base(u) or clean_url(u), ""))
             else:
                 try:
-                    page.goto(args.library_url or state.get("library_url") or START_URL, wait_until="domcontentloaded", timeout=60_000)
+                    page.goto(args.library_url or state.get("library_url") or LIBRARY_URL, wait_until="domcontentloaded", timeout=60_000)
                 except Exception:
                     pass
                 log("\nIn the browser window that just opened:")
                 log("  1. Log in to Metafy (only needed the first time).")
-                log("  2. Open the page that lists the guides you've purchased.")
+                log("  2. Make sure the page lists the guides you've purchased (Account > Purchases > Guides).")
                 input("Then press Enter here... ")
                 page = current_page(ctx)
                 if login_state(page) == "out":

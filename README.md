@@ -65,12 +65,18 @@ Archive everything you have bought:
 The browser opens on Metafy. Log in if needed, open the page that lists your purchased guides,
 then press Enter. Every guide linked from that page is archived; ones already done are skipped.
 
+Videos are saved as Metafy serves them, up to 720p. On one 8-minute 720p60 video that was 47 MB;
+`--compress-videos` brought it to 31 MB in 10 seconds on a recent Mac, and `--video-max-height 480`
+would take the smaller 480p variant with no re-encoding at all.
+
 ### Options
 
 | Option | Effect |
 | --- | --- |
 | `--force` | re-archive guides that were already done (earlier PDFs and videos are kept) |
 | `--no-videos` | do not download Metafy-hosted videos, keep links only |
+| `--video-max-height PX` | take the stream variant at most this tall, e.g. `480` (default 720); no quality loss beyond the variant itself |
+| `--compress-videos` | re-encode videos to at most 30 fps and the height above; about a third smaller, costs roughly a tenth of the video's length in CPU time |
 | `--match REGEX` | only archive guides whose URL matches, in library mode |
 | `--max-image-px N` | image size limit, default 1600; `0` keeps originals (much bigger PDFs) |
 | `--paper A4` | PDF paper size (default Letter) |
