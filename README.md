@@ -3,8 +3,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Linux%20%7C%20Windows-555)](#installing)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-<!-- Once this repo is on GitHub, add the test badge:
-[![Tests](https://github.com/OWNER/metafy-archiver/actions/workflows/test.yml/badge.svg)](https://github.com/OWNER/metafy-archiver/actions/workflows/test.yml) -->
+[![Tests](https://github.com/devinklepp/metafy-archiver/actions/workflows/test.yml/badge.svg)](https://github.com/devinklepp/metafy-archiver/actions/workflows/test.yml)
 
 metafy-archiver keeps offline copies of the [Metafy](https://metafy.gg) guides you have paid for:
 one PDF per guide with every section and image, and the Metafy-hosted videos saved alongside as
@@ -75,8 +74,15 @@ into a private folder inside the project. Nothing is installed system-wide.
 
 ## Installing
 
-Download the project (the green **Code** button on GitHub, then **Download ZIP** and unzip it,
-or `git clone`), open a terminal in the project folder, and run the setup once.
+Download the project (the green **Code** button on GitHub, then **Download ZIP** and unzip it),
+or clone it:
+
+```sh
+git clone https://github.com/devinklepp/metafy-archiver.git
+cd metafy-archiver
+```
+
+Then run the setup once.
 
 ### macOS and Linux
 
