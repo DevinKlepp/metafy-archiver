@@ -388,10 +388,15 @@ def find_guides(page: Page, args) -> list[tuple[str, str]]:
     found: dict[str, str] = {}
     for link in evaluate_retry(page, JS["links"]):
         base = guide_base(link["href"])
-        if base and (not args.match or re.search(args.match, base, re.I)):
+        if base:
             if len(link["text"]) > len(found.get(base, "")):
                 found[base] = link["text"].splitlines()[0] if link["text"] else ""
             found.setdefault(base, "")
+    if args.match:
+        kept = {b: t for b, t in found.items() if re.search(args.match, b, re.I)}
+        if found and not kept:
+            log(f"\nNone of the {len(found)} guides in your library matches --match {args.match!r}.")
+        found = kept
     return list(found.items())
 
 
@@ -493,16 +498,25 @@ def main() -> int:
             else:
                 with contextlib.suppress(Exception):
                     page.goto(args.library_url or state.get("library_url") or LIBRARY_URL, wait_until="domcontentloaded", timeout=60_000)
-                log("\nIn the browser window that just opened:")
-                log("  1. Log in to Metafy (only needed the first time).")
-                log("  2. Make sure the page lists the guides you've purchased (Account > Purchases > Guides).")
-                input("Then press Enter here... ")
+                    settle(page, expand=False)
                 page = current_page(ctx)
-                if login_state(page) == "out":
-                    log("WARNING: the page looks logged out; paid sections may come out empty.")
+                # Same rule as for direct URLs: pause for a login only when one is actually needed.
+                if first_run or args.login or login_state(page) == "out":
+                    why = "no saved session" if first_run else ("--login" if args.login else "the saved session looks logged out")
+                    if args.headless:
+                        raise SystemExit(f"Login needed ({why}) but --headless has no window to log in with. Run once without --headless.")
+                    log("\nIn the browser window that just opened:")
+                    log("  1. Log in to Metafy (only needed the first time).")
+                    log("  2. Make sure the page lists the guides you've purchased (Account > Purchases > Guides).")
+                    input("Then press Enter here... ")
+                    page = current_page(ctx)
+                    if login_state(page) == "out":
+                        log("WARNING: the page looks logged out; paid sections may come out empty.")
                 state["library_url"] = page.url
                 STATE_FILE.write_text(json.dumps(state, indent=2))
                 targets = find_guides(page, args)
+                if not targets and args.match:
+                    return 1
                 if not targets:
                     dump = args.out / "library-debug.html"
                     dump.write_text(page.content(), encoding="utf-8")
