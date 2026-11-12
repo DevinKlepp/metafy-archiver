@@ -3,12 +3,11 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Playwright's own image: browsers and their system libraries are preinstalled, so there is
+    # no apt step to break. Keep the tag in step with the playwright pin in requirements.txt.
+    container: mcr.microsoft.com/playwright/python:v1.57.0-noble
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m playwright install --with-deps chromium
       - run: python tests/test_images.py
       - run: python tests/test_mock.py
