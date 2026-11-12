@@ -39,7 +39,10 @@ Download this project (the green "Code" button on GitHub, "Download ZIP", then u
 ```
 
 It creates a private Python environment inside the folder, installs the dependencies and
-downloads the browser it drives. Nothing is installed system-wide.
+downloads the browser it drives. Nothing is installed system-wide. (Developed and tested on
+macOS; the Windows script follows the same steps but has not been run on a Windows machine yet.
+If it misbehaves, the manual steps are: create a venv, `pip install -r requirements.txt`, and
+`python -m playwright install chromium`.)
 
 ## Use
 
@@ -76,7 +79,7 @@ would take the smaller 480p variant with no re-encoding at all.
 | `--force` | re-archive guides that were already done (earlier PDFs and videos are kept) |
 | `--no-videos` | do not download Metafy-hosted videos, keep links only |
 | `--video-max-height PX` | take the stream variant at most this tall, e.g. `480` (default 720); no quality loss beyond the variant itself |
-| `--compress-videos` | re-encode videos to at most 30 fps and the height above; about a third smaller, costs roughly a tenth of the video's length in CPU time |
+| `--compress-videos` | re-encode videos to at most 30 fps and the height above; about a third smaller, costs roughly a tenth of the video's length in CPU time. Videos already saved are re-encoded from the local copy, no download needed |
 | `--match REGEX` | only archive guides whose URL matches, in library mode |
 | `--max-image-px N` | image size limit, default 1600; `0` keeps originals (much bigger PDFs) |
 | `--paper A4` | PDF paper size (default Letter) |

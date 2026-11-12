@@ -73,13 +73,31 @@ def link_expiry(url: str) -> dt.datetime | None:
     return None
 
 
+def stable_key(url: str) -> str:
+    """Identifies a video across runs even though signed links change: Mux playback id, else URL sans query."""
+    m = MUX_ID_RE.search(url)
+    return f"mux:{m.group(1)}" if m else url.split("?")[0]
+
+
+def normalize_video_url(u: str) -> str:
+    """Embed URLs to their canonical page, like norm() in js/extract.js, for links seen only on the wire."""
+    m = re.search(r"youtube(?:-nocookie)?\.com/embed/([\w-]{6,})", u)
+    if m:
+        t = re.search(r"[?&]start=(\d+)", u)
+        return f"https://www.youtube.com/watch?v={m.group(1)}" + (f"&t={t.group(1)}s" if t else "")
+    m = re.search(r"player\.vimeo\.com/video/(\d+)", u)
+    if m:
+        return f"https://vimeo.com/{m.group(1)}"
+    return u
+
+
 def merge_videos(data_videos: list[dict], sniffed: list[str], ignore: list[str] = ()) -> list[dict]:
     """Add streams seen on the wire that the DOM did not expose, minus renditions/segments/duplicates."""
     videos = [dict(v, host=v.get("host") or video_host(v["url"])) for v in data_videos]
     known = {v["url"] for v in videos}
     known_mux = {m.group(1) for v in videos if (m := MUX_ID_RE.search(v["url"]))}
     skip = {u.split("?")[0] for u in ignore}
-    for s in dict.fromkeys(sniffed):
+    for s in dict.fromkeys(normalize_video_url(s) for s in sniffed):
         if MEDIA_NOISE_RE.search(s) or s in known or s.split("?")[0] in skip:
             continue
         if (m := MUX_ID_RE.search(s)) and m.group(1) in known_mux:
@@ -342,7 +360,7 @@ class ImageStore:
             headers = {u: self._headers(u, referer) for u in todo}  # cookies: main thread only
             with ThreadPoolExecutor(max_workers=self.workers) as pool:
                 results = list(pool.map(lambda u: self._fetch(u, headers[u]), todo))
-            for u, res in zip(todo, results):  # store in order so numbering follows the page
+            for u, res in zip(todo, results, strict=True):  # store in order so numbering follows the page
                 if isinstance(res, str):
                     res = self._fallback(u, referer, res)
                 if isinstance(res, str):

@@ -124,25 +124,41 @@ def test_archive(tmp_path: Path) -> None:
                 first = results["mock-guide-abc123"]["dir"]
                 first_src, first_html = (first / "source.json").read_text(), (first / "guide.html").read_text()
 
-                # The guide changes: one section edited, one added. A re-run must report both and
-                # reuse the video it already saved.
+                # The guide changes: one section edited, one inserted at the top (which renumbers the
+                # rest). A re-run must report both, keep the earlier PDF, and reuse the saved video
+                # under its new number instead of downloading it again.
                 main_base = f"{origin}/guides/view/mock-guide-abc123"
                 p2 = site / "guides/view/mock-guide-abc123/2-matchups.html"
                 p2.write_text(p2.read_text().replace("Win rate", "Win percentage"))
                 root = site / "guides/view/mock-guide-abc123.html"
-                root.write_text(root.read_text().replace("</ol>", '<li><a href="/guides/view/mock-guide-abc123/3-extra">3. Extra</a></li></ol>'))
-                (site / "guides/view/mock-guide-abc123/3-extra.html").write_text(
-                    root.read_text().replace("<h2>Mock Guide</h2>", "<h2>3. Extra</h2>").replace("Welcome.", "Brand new section."))
-                rerun = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=results["mock-guide-abc123"]["dir"], ffmpeg=ffmpeg)
-                assert rerun and rerun["dir"] == results["mock-guide-abc123"]["dir"]
+                root.write_text(root.read_text().replace("<ol>", '<ol><li><a href="/guides/view/mock-guide-abc123/0-preface">0. Preface</a></li>'))
+                (site / "guides/view/mock-guide-abc123/0-preface.html").write_text(
+                    root.read_text().replace("<h2>Mock Guide</h2>", "<h2>0. Preface</h2>").replace("Welcome.", "Brand new section."))
+                rerun = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=first, ffmpeg=ffmpeg)
+                assert rerun and rerun["dir"] == first
                 ch = rerun["changes"]
-                assert ch and ch["new"] == ["3. Extra"] and ch["updated"] == ["2. Matchups"] and ch["removed"] == [], ch
+                assert ch and ch["new"] == ["0. Preface"] and ch["updated"] == ["2. Matchups"] and ch["removed"] == [], ch
                 html2 = (rerun["dir"] / "guide.html").read_text()
-                assert "Changes since" in html2 and "New: 3. Extra" in html2 and ">NEW<" in html2 and ">UPDATED<" in html2
+                assert "Changes since" in html2 and "New: 0. Preface" in html2 and ">NEW<" in html2 and ">UPDATED<" in html2
                 assert results["mock-guide-abc123"]["pdf"].exists()  # earlier PDF kept
+                src2 = json.loads((first / "source.json").read_text())
+                assert [s["title"] for s in src2["sections"]] == ["Mock Guide", "0. Preface", "1. Intro", "2. Matchups"]
                 if have_clip:
-                    assert (rerun["dir"] / "videos/03-2. Matchups-1.mp4").exists()
+                    assert (first / "videos/04-2. Matchups-1.mp4").exists() and not (first / "videos/03-2. Matchups-1.mp4").exists()
                     assert not any("clip.mp4" in u for u in attempted[2:]), attempted  # reused, not re-fetched
+                    clip2 = next(v for s in src2["sections"] for v in s["videos"] if v.get("file"))
+                    assert clip2["file"] == "videos/04-2. Matchups-1.mp4" and clip2["encoded"] == "copy"
+                    # Asking for compression re-encodes the saved copy locally, still without a download.
+                    n_attempts = len(attempted)
+                    args.compress_videos = True
+                    rerun3 = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=first, ffmpeg=ffmpeg)
+                    args.compress_videos = False
+                    assert rerun3 and not any("clip.mp4" in u for u in attempted[n_attempts:])
+                    src3 = json.loads((first / "source.json").read_text())
+                    clip3 = next(v for s in src3["sections"] for v in s["videos"] if v.get("file"))
+                    assert clip3["encoded"] == "x264" and (first / clip3["file"]).exists()
+                    assert len(list((first / "videos").glob("*.mp4"))) == 1  # the uncompressed copy was replaced
+                    (first / "source.json").write_text(json.dumps(src2))  # back to the second run's data for the checks below
             finally:
                 ctx.close()
                 srv.shutdown()
@@ -183,9 +199,9 @@ def test_archive(tmp_path: Path) -> None:
     assert not any("youtu" in u for u in attempted), attempted  # YouTube is never downloaded
     if have_clip:
         clip = vids[f"{origin}/media/clip.mp4"]
-        assert clip["file"] == "videos/03-2. Matchups-1.mp4", clip
-        saved = main["dir"] / clip["file"]
-        assert saved.exists() and saved.stat().st_size > 10_000
+        assert clip["file"] == "videos/03-2. Matchups-1.mp4" and clip["encoded"] == "copy", clip
+        saved = list((main["dir"] / "videos").glob("*.mp4"))  # since renamed and re-encoded by the later runs
+        assert len(saved) == 1 and saved[0].stat().st_size > 10_000, saved
         assert html.count("Saved copy: <a href='videos/03-2. Matchups-1.mp4'>") == 2  # box + section list
         assert f"{origin}/media/clip.mp4" not in html  # the dead link is not printed once saved
         assert mux["note"].startswith("download failed"), mux
@@ -194,7 +210,7 @@ def test_archive(tmp_path: Path) -> None:
     else:
         print("NOTE: no usable ffmpeg, video download assertions skipped")
     # The same image under two URLs is stored once (content hash) and both tags point at it.
-    assert html.count("images/") >= 3 and len({l for l in re.findall(r"images/[\w.-]+", html)}) == 2
+    assert html.count("images/") >= 3 and len(set(re.findall(r"images/[\w.-]+", html))) == 2
     # Markup clean-up: framework comments gone, Q&A thread as comment blocks, no div inside p,
     # the "Like" button dropped, no deep single-child div chains.
     assert "<!--" not in html.split("<section", 1)[1]

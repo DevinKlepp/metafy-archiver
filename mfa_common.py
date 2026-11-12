@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import subprocess
+import sys
 from urllib.parse import urlsplit, urlunsplit
 
 # /guides/view/<slug>, /guides/<slug>, /@coach/guides/<slug> ...
@@ -44,6 +46,21 @@ def strip_site(title: str) -> str:
 def pdf_name(title: str, when: dt.datetime) -> str:
     """'<title> - 2026-11-11 2153.pdf' (no colons: they are illegal on Windows and awkward in Finder)."""
     return safe_name(f"{title} - {when:%Y-%m-%d %H%M}") + ".pdf"
+
+
+def launch_or_install(launch):
+    """Call a Playwright launch function; if its browser is missing, install Chromium once and retry.
+
+    This is what lets a fresh download work without anyone knowing the `playwright install` step.
+    """
+    try:
+        return launch()
+    except Exception as e:
+        if not any(s in str(e) for s in ("Executable doesn't exist", "playwright install")):
+            raise
+        log("Downloading the browser Playwright needs (one time, about 150 MB)...")
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+        return launch()
 
 
 def human_size(n: int | float) -> str:

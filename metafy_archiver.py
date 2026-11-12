@@ -16,13 +16,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -31,9 +30,9 @@ from urllib.parse import urlsplit
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, human_duration, human_size,  # noqa: F401 (re-exported)
-                        log, pdf_name, safe_name, strip_site)
+                        launch_or_install, log, pdf_name, safe_name, strip_site)
 from mfa_media import (ImageStore, Image, download_video, find_ffmpeg, is_media_url, link_expiry,  # noqa: F401
-                       merge_videos, never_download, shrink_image, video_host)
+                       merge_videos, never_download, shrink_image, stable_key, video_host)
 from mfa_output import diff_sections, changes_text, place_images, place_videos, render_pdf, write_outputs  # noqa: F401
 
 HERE = Path(__file__).resolve().parent
@@ -59,19 +58,15 @@ def settle(page: Page, expand: bool = True) -> None:
     We wait for the content element rather than 'network idle': analytics beacons keep most
     sites from ever going idle, which used to cost ~15 s per section.
     """
-    try:
+    with contextlib.suppress(Exception):
         page.wait_for_selector("article, main, [role=main]", timeout=10_000)
-    except Exception:
-        pass
     for name in (("expand",) if expand else ()) + ("scroll",):
         try:
             page.evaluate(JS[name])
         except Exception as e:  # navigation mid-script etc.
             log(f"    (note: page script interrupted: {str(e).splitlines()[0][:80]})")
-    try:
+    with contextlib.suppress(Exception):
         page.wait_for_load_state("networkidle", timeout=3_000)
-    except Exception:
-        pass
 
 
 def evaluate_retry(page: Page, js: str, arg=None, tries: int = 2):
@@ -112,32 +107,19 @@ def ensure_logged_in(page: Page, args, first_run: bool) -> None:
         log("WARNING: the page still looks logged out; paid sections may come out empty.")
 
 
-def ensure_browsers() -> None:
-    """First run on a fresh machine: fetch Playwright's Chromium so nobody has to know the command."""
-    try:
-        from playwright._impl._driver import compute_driver_executable  # noqa: F401  (import check only)
-    except Exception:
-        return
-    cache = (Path(os.environ.get("PLAYWRIGHT_BROWSERS_PATH") or "") if os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-             else {"darwin": Path.home() / "Library/Caches/ms-playwright",
-                   "win32": Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"}.get(sys.platform, Path.home() / ".cache/ms-playwright"))
-    if cache.exists() and any(cache.glob("chromium*")):
-        return
-    log("Downloading the browser Playwright needs (one time, ~150 MB)...")
-    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
-
-
 def open_browser(pw, args) -> BrowserContext:
-    kwargs = dict(
-        user_data_dir=str(args.profile), headless=args.headless, viewport={"width": 1360, "height": 900},
-        args=["--disable-blink-features=AutomationControlled"], ignore_default_args=["--enable-automation"],
-    )
+    """Your installed Google Chrome if possible (its profile looks least like automation), else the
+    bundled Chromium, which is downloaded on the spot the first time."""
+    kwargs = {
+        "user_data_dir": str(args.profile), "headless": args.headless, "viewport": {"width": 1360, "height": 900},
+        "args": ["--disable-blink-features=AutomationControlled"], "ignore_default_args": ["--enable-automation"],
+    }
     if args.browser == "chrome":
         try:
             return pw.chromium.launch_persistent_context(channel="chrome", **kwargs)
         except Exception as e:
             log(f"Could not start Google Chrome ({str(e).splitlines()[0][:80]}); using bundled Chromium.")
-    return pw.chromium.launch_persistent_context(**kwargs)
+    return launch_or_install(lambda: pw.chromium.launch_persistent_context(**kwargs))
 
 
 def current_page(ctx: BrowserContext) -> Page:
@@ -178,7 +160,10 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     origin = "{0.scheme}://{0.netloc}".format(urlsplit(base))
     base_path = urlsplit(base).path
     sniffed: list[str] = []
-    listener = lambda req: sniffed.append(req.url) if MEDIA_RE.search(req.url) else None
+
+    def listener(req) -> None:
+        if MEDIA_RE.search(req.url):
+            sniffed.append(req.url)
     page.on("request", listener)
 
     queue, seen = [base], {base}
@@ -189,7 +174,18 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     images = ImageStore(ctx, tmp_dir / "images", args.max_image_px)
     guide_title = author = ""
     video_files: dict[str, Path] = {}  # rel path -> where the file currently is
-    prev_videos = (prev_dir / "videos") if prev_dir and (prev_dir / "videos").is_dir() else None
+    consumed: set[Path] = set()  # earlier files replaced by a re-encoded copy
+    want = "x264" if args.compress_videos else "copy"
+    # Videos saved by an earlier run, keyed by what stays stable across runs (the Mux playback id),
+    # not by file name: sections get inserted and renumber everything after them.
+    prev_videos: dict[str, dict] = {}
+    prev_source = load_source(prev_dir)
+    if prev_dir and prev_source:
+        for s in prev_source.get("sections", []):
+            for pv in s.get("videos", []):
+                f = prev_dir / pv["file"] if pv.get("file") else None
+                if f and f.exists() and f.stat().st_size > 10_000:
+                    prev_videos[stable_key(pv["url"])] = {"path": f, "encoded": pv.get("encoded", "copy")}
 
     def in_guide(u: str) -> bool:
         p = urlsplit(u).path
@@ -197,7 +193,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
                 and not SKIP_PATH_RE.search(p))
 
     def fetch_video(v: dict, chapter_no: int, chapter_title: str, k: int, referer: str) -> None:
-        """Save this video if it is a Metafy-hosted stream; annotate v with file/note."""
+        """Save this video if it is a Metafy-hosted stream; annotate v with file/encoded/note."""
         exp = f" (stream link expires {v['expires'].replace('T', ' ')})" if v.get("expires") else ""
         if args.no_videos:
             v["note"] = "not downloaded (--no-videos)" + exp
@@ -207,16 +203,25 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             return
         name = safe_name(f"{chapter_no:02d}-{chapter_title}") + (f"-{k}" if k else "") + ".mp4"
         rel = f"videos/{name}"
-        if prev_videos and (prev_videos / name).exists() and (prev_videos / name).stat().st_size > 10_000:
-            log(f"    video already saved earlier: {name}")
-            v["file"] = rel
-            video_files[rel] = prev_videos / name
+        prev = prev_videos.get(stable_key(v["url"]))
+        if prev and not (args.compress_videos and prev["encoded"] != "x264"):
+            renamed = "" if prev["path"].name == name else f" (was {prev['path'].name})"
+            log(f"    video already saved earlier: {name}{renamed}")
+            v["file"], v["encoded"] = rel, prev["encoded"]
+            video_files[rel] = prev["path"]
             return
-        log(f"    downloading {v['host']} video -> {name}" + (" (compressing)" if args.compress_videos else ""))
-        if download_video(ffmpeg, v["url"], tmp_dir / "videos" / name, referer,
+        if prev:
+            log(f"    compressing the copy saved earlier -> {name} (no download)")
+            source = str(prev["path"])
+        else:
+            log(f"    downloading {v['host']} video -> {name}" + (" (compressing)" if args.compress_videos else ""))
+            source = v["url"]
+        if download_video(ffmpeg, source, tmp_dir / "videos" / name, referer,
                           max_height=args.video_max_height, compress=args.compress_videos):
-            v["file"] = rel
+            v["file"], v["encoded"] = rel, want
             video_files[rel] = tmp_dir / "videos" / name
+            if prev:
+                consumed.add(prev["path"])
         else:
             v["note"] = "download failed; only the link is kept" + exp
 
@@ -238,7 +243,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             # Sibling sections: the sidebar's order is the guide's order, so enqueue those first.
             links = evaluate_retry(page, JS["links"])
             fresh = []
-            for link in sorted(links, key=lambda l: not l["nav"]):
+            for link in sorted(links, key=lambda lnk: not lnk["nav"]):
                 u = clean_url(link["href"])
                 if not in_guide(u):
                     continue
@@ -301,17 +306,26 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     shutil.rmtree(out_dir / "images", ignore_errors=True)
     if (tmp_dir / "images").exists():
         (tmp_dir / "images").rename(out_dir / "images")
-    # Videos are big: move new ones in, keep ones we reused, never re-download what we have.
+    # Videos are big: move new ones in, rename reused ones that changed number, copy from another
+    # folder only if the guide's folder itself changed; never re-download what we have.
     for rel, src in video_files.items():
         dest = out_dir / rel
-        if src.resolve() == dest.resolve():
+        if not src.exists() or src.resolve() == dest.resolve():
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if src.is_relative_to(tmp_dir):
+        if src.is_relative_to(tmp_dir) or src.is_relative_to(out_dir):
             src.replace(dest)
         else:
             shutil.copy2(src, dest)
+    kept = {(out_dir / rel).resolve() for rel in video_files}
+    for f in consumed:
+        if f.resolve() not in kept:  # a re-encode often lands on the same name it replaces
+            f.unlink(missing_ok=True)
     shutil.rmtree(tmp_dir, ignore_errors=True)
+    if (out_dir / "videos").is_dir():
+        orphans = sorted(f.name for f in (out_dir / "videos").glob("*.mp4") if f"videos/{f.name}" not in video_files)
+        if orphans:
+            log(f"  note: videos/ also holds {len(orphans)} file(s) no section refers to any more: {', '.join(orphans)[:200]}")
 
     now = dt.datetime.now()
     pdf = out_dir / pdf_name(guide_title, now)
@@ -423,7 +437,6 @@ def main() -> int:
     first_run = not args.profile.exists()
     args.out.mkdir(parents=True, exist_ok=True)
     out_root = args.out.resolve()
-    ensure_browsers()
     ffmpeg = None if args.no_videos else find_ffmpeg(args.ffmpeg)
     if not args.no_videos and not ffmpeg:
         log("Note: no usable ffmpeg found, so Metafy-hosted videos will be kept as (expiring) links only.\n"
@@ -442,10 +455,8 @@ def main() -> int:
                 for u in args.urls:
                     targets.append((guide_base(u) or clean_url(u), ""))
             else:
-                try:
+                with contextlib.suppress(Exception):
                     page.goto(args.library_url or state.get("library_url") or LIBRARY_URL, wait_until="domcontentloaded", timeout=60_000)
-                except Exception:
-                    pass
                 log("\nIn the browser window that just opened:")
                 log("  1. Log in to Metafy (only needed the first time).")
                 log("  2. Make sure the page lists the guides you've purchased (Account > Purchases > Guides).")
@@ -505,10 +516,8 @@ def main() -> int:
             log("\nStopped.")
             return 130
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 ctx.close()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":

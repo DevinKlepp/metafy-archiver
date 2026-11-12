@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+from mfa_common import launch_or_install
+
 CSS = """
 @page { margin: 18mm 16mm; }
 * { box-sizing: border-box; }
@@ -48,10 +50,11 @@ blockquote { border-left: 3px solid #999; margin: 12px 0; padding: 2px 14px; col
 
 def place_images(body: str, image_urls: list[str], saved: list[str | None]) -> str:
     """Swap MFAIMG_n_ placeholders for local paths; a visible note replaces images that failed."""
-    for i, (img_url, rel) in enumerate(zip(image_urls, saved)):
+    for i, (img_url, rel) in enumerate(zip(image_urls, saved, strict=True)):
         tag_re = re.compile(rf"<img\b[^>]*\bsrc=\"MFAIMG_{i}_\"[^>]*>")
         if rel:
-            body = tag_re.sub(lambda m: m.group(0).replace(f"MFAIMG_{i}_", html.escape(rel, quote=True)), body)
+            marker, local = f"MFAIMG_{i}_", html.escape(rel, quote=True)
+            body = tag_re.sub(lambda m, marker=marker, local=local: m.group(0).replace(marker, local), body)
         else:
             note = (f"<div class='mfa-missing'>Image not saved: "
                     f"<a href='{html.escape(img_url or '', quote=True)}'>{html.escape(img_url or '?')}</a></div>")
@@ -101,10 +104,11 @@ def diff_sections(prev: dict | None, chapters: list[dict]) -> dict | None:
     new = {c["url"]: c for c in chapters}
     added = [c["title"] for u, c in new.items() if u not in old]
     removed = [s["title"] for u, s in old.items() if u not in new]
-    updated = [c["title"] for u, c in new.items() if u in old and old[u].get("hash") and old[u]["hash"] != c["hash"]]
+    updated_urls = {u for u, c in new.items() if u in old and old[u].get("hash") and old[u]["hash"] != c["hash"]}
     for c in chapters:
-        c["flag"] = "new" if c["url"] not in old else ("updated" if c["title"] in updated else "")
-    return {"since": prev.get("archived", "?"), "new": added, "updated": updated, "removed": removed}
+        c["flag"] = "new" if c["url"] not in old else ("updated" if c["url"] in updated_urls else "")
+    return {"since": prev.get("archived", "?"), "new": added, "removed": removed,
+            "updated": [c["title"] for c in chapters if c["flag"] == "updated"]}
 
 
 def changes_text(ch: dict | None) -> str:
@@ -171,13 +175,14 @@ def write_outputs(out_dir: Path, title: str, author: str, base: str, chapters: l
     (out_dir / "source.json").write_text(json.dumps(
         {"title": title, "author": author, "url": base, "archived": now.isoformat(timespec="minutes"),
          "pdf": pdf_file, "changes": changes,
-         "sections": [{"title": c["title"], "url": c["url"], "hash": c["hash"], "videos": c["videos"]} for c in chapters]},
+         "sections": [{"title": c["title"], "url": c["url"], "hash": c["hash"], "flag": c.get("flag", ""),
+                       "videos": c["videos"]} for c in chapters]},
         indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def render_pdf(pw, out_dir: Path, pdf_path: Path, title: str, paper: str) -> None:
     """Render the saved guide.html to PDF with a separate headless browser (no login needed)."""
-    browser = pw.chromium.launch(headless=True)
+    browser = launch_or_install(lambda: pw.chromium.launch(headless=True))
     try:
         page = browser.new_page()
         page.goto((out_dir / "guide.html").as_uri(), wait_until="load", timeout=120_000)
