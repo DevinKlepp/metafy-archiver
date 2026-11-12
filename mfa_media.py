@@ -294,10 +294,24 @@ def shrink_image(path: Path, max_px: int, bg: tuple[int, int, int] = (255, 255, 
         return path
 
 
+def _ssl_context():
+    """python.org builds on macOS ship without root certificates until a post-install step is run;
+    certifi's bundle avoids that trap. Falls back to the system store if certifi is missing."""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
+SSL_CONTEXT = _ssl_context()
+
+
 def http_get(url: str, headers: dict) -> tuple[bytes, str]:
     """Plain urllib fetch (thread-safe, unlike the Playwright client). Returns (body, content-type)."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, **headers})
-    with urllib.request.urlopen(req, timeout=45) as r:
+    with urllib.request.urlopen(req, timeout=45, context=SSL_CONTEXT) as r:
         return r.read(), r.headers.get_content_type()
 
 

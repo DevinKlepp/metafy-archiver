@@ -194,6 +194,7 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | `--browser chromium` | use the bundled Chromium instead of your installed Google Chrome |
 | `--headless` | no browser window; only once you are logged in |
 | `--delay SECONDS` | pause between pages, default 1.5 |
+| `--max-pages N` | stop after N sections of one guide, default 300 |
 | `--selector CSS` | if the wrong part of the page is captured |
 | `--ffmpeg PATH` | use a specific ffmpeg |
 
@@ -206,6 +207,10 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | A section comes out nearly empty | The run prints a warning. Usually the login expired: run again with `--login`. |
 | Videos are kept as links only | The run says ffmpeg was not found. Re-run `./setup.sh`, or install ffmpeg yourself (`brew install ffmpeg` on a Mac). |
 | The wrong part of the page is captured | Pass `--selector` with a CSS selector for the guide body, for example `--selector article`. |
+| `./setup.sh: Permission denied` | Run `bash setup.sh` instead; it restores the permissions. |
+| Linux: Chromium fails to start with "missing dependencies" | Run `.venv/bin/python -m playwright install-deps chromium` once (needs sudo), then try again. |
+| Google Chrome is not installed | Nothing to do; the bundled Chromium is used automatically. |
+| Odd characters in the terminal on Windows | Cosmetic. Use Windows Terminal, or ignore it; files are unaffected. |
 | Start over | Delete `.browser-profile/` (saved login) and `.state.json` (what is done). |
 
 ## How it works

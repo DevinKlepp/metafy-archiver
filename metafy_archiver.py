@@ -103,9 +103,19 @@ def ensure_logged_in(page: Page, args, first_run: bool) -> None:
     why = "no saved session" if first_run else ("--login" if args.login else "the saved session looks logged out")
     if args.headless:
         raise SystemExit(f"Login needed ({why}) but --headless has no window to log in with. Run once without --headless.")
-    input(f"\nLogin needed ({why}). Log in to Metafy in the browser window, then press Enter here... ")
-    if login_state(page) == "out":
-        log("WARNING: the page still looks logged out; paid sections may come out empty.")
+    prompt = f"\nLogin needed ({why}). Log in to Metafy in the browser window, then press Enter here... "
+    for _ in range(3):
+        answer = input(prompt).strip().lower()
+        if answer in ("q", "quit", "skip"):
+            break
+        with contextlib.suppress(Exception):
+            page.goto(START_URL, wait_until="domcontentloaded", timeout=60_000)
+            settle(page, expand=False)
+        if login_state(page) != "out":
+            return
+        prompt = ("\nThe page still looks logged out, and paid sections will come out empty without a login.\n"
+                  "Log in in the browser window and press Enter again (or type q to continue anyway)... ")
+    log("WARNING: continuing without a login; locked sections will not be recorded as archived.")
 
 
 def open_browser(pw, args) -> BrowserContext:
@@ -169,6 +179,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
 
     queue, seen = [base], {base}
     chapters, text_hashes = [], set()
+    locked = 0  # sections that came back nearly empty, usually a paywall seen while logged out
     nav_titles: dict[str, str] = {}  # section URL -> its label in the sidebar
     tmp_dir = out_root / f".partial-{hashlib.sha1(base.encode()).hexdigest()[:8]}"
     shutil.rmtree(tmp_dir, ignore_errors=True)  # left over from an interrupted run
@@ -236,9 +247,12 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             sniffed.clear()
             log(f"  - {url.replace(origin, '')}")
             try:
-                page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
             except Exception as e:
                 log(f"    could not load: {str(e).splitlines()[0][:100]}")
+                continue
+            if resp is not None and resp.status >= 400:
+                log(f"    could not load: HTTP {resp.status}" + (" (is the URL right?)" if url == base else ""))
                 continue
             settle(page)
 
@@ -266,6 +280,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
             text_hashes.add(digest)
             if len(data["text"]) < 200 and not data["images"] and not data["videos"]:
                 log("    WARNING: almost no content here (locked, or not loaded?)")
+                locked += 1
 
             title = (nav_titles.get(url) if url != base else "") or data["title"] \
                 or strip_site(data["docTitle"]) or url.rsplit("/", 1)[-1]
@@ -333,7 +348,7 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     pdf = out_dir / pdf_name(guide_title, now)
     write_outputs(out_dir, guide_title, author, base, chapters, now, pdf.name, changes,
                   theme=theme, paper=getattr(args, "paper", "Letter"))
-    return {"dir": out_dir, "pdf": pdf, "title": guide_title, "changes": changes}
+    return {"dir": out_dir, "pdf": pdf, "title": guide_title, "changes": changes, "locked": locked}
 
 
 LOAD_MORE_RE = r"^(load|show|see|view)\s+(more|all)(\s+guides)?$"
@@ -436,6 +451,16 @@ def main() -> int:
     ap.add_argument("--profile", type=Path, default=PROFILE_DIR, help=argparse.SUPPRESS)
     ap.add_argument("--headless", action="store_true", help="run without a window (only once you're logged in)")
     args = ap.parse_args()
+    args.out = args.out.expanduser()
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles may not be UTF-8; never crash on a "·"
+        with contextlib.suppress(Exception):
+            stream.reconfigure(errors="replace")
+    bad = [u for u in args.urls if not guide_base(u)]
+    if bad:
+        log("These don't look like Metafy guide links (expected https://metafy.gg/guides/view/<guide>...):")
+        for u in bad:
+            log(f"  {u}")
+        return 2
 
     t_start = time.time()
     state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
@@ -457,8 +482,7 @@ def main() -> int:
             if args.urls:
                 ensure_logged_in(page, args, first_run)
                 page = current_page(ctx)
-                for u in args.urls:
-                    targets.append((guide_base(u) or clean_url(u), ""))
+                targets = [(guide_base(u), "") for u in args.urls]
             else:
                 with contextlib.suppress(Exception):
                     page.goto(args.library_url or state.get("library_url") or LIBRARY_URL, wait_until="domcontentloaded", timeout=60_000)
@@ -500,8 +524,13 @@ def main() -> int:
                         failed += 1
                         continue
                     render_pdf(pw, res["dir"], res["pdf"], res["title"], args.paper)
-                    done[base] = {"dir": str(res["dir"].relative_to(out_root)),
-                                  "pdf": str(res["pdf"].relative_to(out_root))}
+                    if res["locked"]:
+                        log(f"  WARNING: {res['locked']} section(s) came out empty (locked?). This guide is NOT marked as done;\n"
+                            f"           the next run will redo it. If you were logged out, run again with --login.")
+                        done.pop(base, None)
+                    else:
+                        done[base] = {"dir": str(res["dir"].relative_to(out_root)),
+                                      "pdf": str(res["pdf"].relative_to(out_root))}
                     STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
                     sizes = [f"PDF {human_size(res['pdf'].stat().st_size)}",
                              f"images {human_size(dir_size(res['dir'] / 'images'))}"]

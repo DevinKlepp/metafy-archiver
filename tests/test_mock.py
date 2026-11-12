@@ -117,7 +117,7 @@ def test_archive(tmp_path: Path) -> None:
                 for base in sorted(found):
                     args.theme = "light" if "xyz789" in base else "dark"  # cover both themes
                     res = ma.archive_guide(ctx, page, base, out, args, ffmpeg=ffmpeg)
-                    assert res, base
+                    assert res and res["locked"] == 0, base
                     ma.render_pdf(pw, res["dir"], res["pdf"], res["title"], args.paper)
                     results[base.rsplit("/", 1)[-1]] = res
 

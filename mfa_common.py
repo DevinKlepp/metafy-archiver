@@ -33,10 +33,15 @@ def guide_base(url: str) -> str | None:
     return urlunsplit((s.scheme, s.netloc, m.group("base"), "", ""))
 
 
-def safe_name(name: str, fallback: str = "guide") -> str:
+def safe_name(name: str, fallback: str = "guide", limit: int = 80) -> str:
+    """A file or folder name that is legal on macOS, Linux and Windows.
+
+    80 characters keeps `...\\guides\\<title>\\<title> - <stamp>.pdf` under Windows' 260-character
+    path limit for any reasonable download location.
+    """
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", name)
     name = re.sub(r"\s+", " ", name).strip(" .")
-    return name[:110] or fallback
+    return name[:limit].strip(" .") or fallback
 
 
 def strip_site(title: str) -> str:
