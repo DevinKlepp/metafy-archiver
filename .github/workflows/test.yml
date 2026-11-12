@@ -8,7 +8,9 @@ jobs:
     container: mcr.microsoft.com/playwright/python:v1.65.1-noble
     steps:
       - uses: actions/checkout@v4
-      # The same steps a user runs: sh is dash here, so the scripts stay POSIX.
+      # The same steps a user runs: sh is dash here, so the scripts stay POSIX. Like any fresh
+      # Ubuntu, the image lacks the venv module; setup.sh says so, and this is the fix it names.
+      - run: apt-get update -q && apt-get install -y -q python3-venv
       - run: sh setup.sh
       - run: ./archive --help > /dev/null
       - run: .venv/bin/python tests/test_images.py
