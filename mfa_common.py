@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 GUIDE_RE = re.compile(r"^(?P<base>(?:/[^/]+)*?/guides?/(?:view/)?(?P<slug>[^/]+))", re.I)
 NOT_A_SLUG = {"view", "discover", "browse", "search", "new", "all", "popular", "create"}
 SKIP_PATH_RE = re.compile(r"/(checkout|purchase|buy|gift|share|reviews?|edit|settings)(/|$)", re.I)
+WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)", re.I)
 
 
 def log(msg: str = "") -> None:
@@ -42,7 +44,10 @@ def safe_name(name: str, fallback: str = "guide", limit: int = 80) -> str:
     """
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", name)
     name = re.sub(r"\s+", " ", name).strip(" .")
-    return name[:limit].strip(" .") or fallback
+    name = name[:limit].strip(" .") or fallback
+    if WINDOWS_RESERVED.match(name):  # "CON", "aux.txt" ... cannot be created on Windows
+        name += "_"
+    return name
 
 
 def strip_site(title: str) -> str:
@@ -103,8 +108,9 @@ def zip_folder(folder: Path) -> Path:
     interrupted run never leaves a truncated zip behind.
     """
     import zipfile
-    dest = folder.with_suffix(".zip")
-    part = folder.with_suffix(".zip.part")
+    # Not with_suffix(): "v1.2 Guide" would become "v1.zip".
+    dest = folder.parent / (folder.name + ".zip")
+    part = folder.parent / (folder.name + ".zip.part")
     stored = {".mp4", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".avif"}
     with zipfile.ZipFile(part, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for p in sorted(folder.rglob("*")):
@@ -113,6 +119,30 @@ def zip_folder(folder: Path) -> Path:
                         compress_type=zipfile.ZIP_STORED if p.suffix.lower() in stored else zipfile.ZIP_DEFLATED)
     part.replace(dest)
     return dest
+
+
+def load_state(path: Path) -> dict:
+    """The run state ({"done": {...}, "library_url": ...}); a damaged file is set aside, not fatal."""
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+        raise ValueError("not an object")
+    except Exception as e:
+        backup = path.with_name(path.name + ".broken")
+        path.replace(backup)
+        log(f"Note: {path.name} could not be read ({str(e)[:60]}); moved to {backup.name} and starting fresh.\n"
+            f"      Guides already archived will be redone unless you restore it.")
+        return {}
+
+
+def save_state(path: Path, state: dict) -> None:
+    """Write via a temporary file so an interrupted run never leaves a half-written state behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
 
 
 def human_size(n: int | float) -> str:

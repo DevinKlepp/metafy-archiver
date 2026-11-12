@@ -274,7 +274,17 @@ def test_archive(tmp_path: Path) -> None:
     # --zip packs the guide folder next to itself, media stored uncompressed, rebuilt on demand.
     import zipfile
     z = ma.zip_folder(main["dir"])
-    assert z == main["dir"].with_suffix(".zip") and z.exists()
+    assert z == main["dir"].parent / (main["dir"].name + ".zip") and z.exists()
+    dotted = tmp_path / "Guide v1.2"
+    dotted.mkdir()
+    (dotted / "a.txt").write_text("x")
+    assert ma.zip_folder(dotted).name == "Guide v1.2.zip"  # not "Guide v1.zip"
+    assert ma.safe_name("CON") == "CON_" and ma.safe_name("aux.pdf") == "aux.pdf_" and ma.safe_name("Console") == "Console"
+    broken = tmp_path / "state.json"
+    broken.write_text("{not json", encoding="utf-8")
+    assert ma.load_state(broken) == {} and (tmp_path / "state.json.broken").exists() and not broken.exists()
+    ma.save_state(broken, {"done": {"x": {"dir": "Pokémon ✓"}}})
+    assert ma.load_state(broken)["done"]["x"]["dir"] == "Pokémon ✓" and not (tmp_path / "state.json.tmp").exists()
     with zipfile.ZipFile(z) as zf:
         names = zf.namelist()
         assert f"{main['dir'].name}/guide.html" in names and f"{main['dir'].name}/source.json" in names

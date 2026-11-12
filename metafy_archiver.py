@@ -2,16 +2,16 @@
 """Archive Metafy guides you have purchased into PDFs.
 
 For each guide this saves, under guides/<guide title>/:
-  <guide title> - <date time>.pdf   every chapter in one readable PDF, video links included
+  <guide title> - <date time>.pdf   every section in one readable PDF, video links included
   guide.html                        the same content as a web page (uses the images/ folder)
   images/                           every image from the guide (downscaled for a sane PDF size)
   videos/                           Metafy-hosted videos, saved as MP4 while their stream links are valid
-  videos.md                         every video link found, grouped by chapter
+  videos.md                         every video link found, grouped by section
   source.json                       section titles, URLs, video links and the author, as data
 
 Usage:
-  python metafy_archiver.py                 # log in, open your library, archive everything
-  python metafy_archiver.py URL [URL ...]   # archive specific guides
+  ./archive                 # log in, open your library, archive everything   (Windows: .\\archive)
+  ./archive URL [URL ...]   # archive specific guides
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, hash_text, human_duration, human_size,  # noqa: F401 (re-exported)
-                        launch_or_install, log, pdf_name, safe_name, strip_site, zip_folder)
+                        launch_or_install, load_state, log, pdf_name, safe_name, save_state, strip_site, zip_folder)
 from mfa_media import (ImageStore, Image, download_video, find_ffmpeg, is_media_url, link_expiry,  # noqa: F401
                        merge_videos, never_download, shrink_image, stable_key, video_host)
 from mfa_output import (DEFAULT_THEME, THEMES, changes_text, diff_sections, place_images, place_videos,  # noqa: F401
@@ -440,10 +440,10 @@ def main() -> int:
     ap.add_argument("-o", "--out", type=Path, default=HERE / "guides", help="output folder (default: ./guides)")
     ap.add_argument("--zip", action="store_true",
                     help="after each guide, also pack its folder into guides/<title>.zip (PDF, videos, images, html)")
-    ap.add_argument("--force", action="store_true", help="re-download guides that were already archived")
-    ap.add_argument("--login", action="store_true", help="pause for login even if a saved session exists")
-    ap.add_argument("--match", help="only archive guides whose URL matches this regex")
-    ap.add_argument("--selector", help="CSS selector of the guide content, if auto-detection grabs the wrong area")
+    ap.add_argument("--force", action="store_true", help="archive guides again even though they were already done")
+    ap.add_argument("--login", action="store_true", help="pause for a login even though one is saved")
+    ap.add_argument("--match", metavar="TEXT", help="library mode: only guides whose address contains TEXT (a regular expression)")
+    ap.add_argument("--selector", help="which part of the page to capture (a CSS selector), if the automatic choice is wrong")
     ap.add_argument("--paper", default="Letter", choices=["Letter", "A4"], help="PDF paper size")
     ap.add_argument("--theme", default=DEFAULT_THEME, choices=sorted(THEMES),
                     help="PDF look: 'dark' matches Metafy (default), 'light' is plain paper")
@@ -458,10 +458,11 @@ def main() -> int:
     ap.add_argument("--ffmpeg", help="path to ffmpeg (default: PATH, then the imageio-ffmpeg package)")
     ap.add_argument("--delay", type=float, default=1.5, help="seconds to wait between pages (default 1.5)")
     ap.add_argument("--max-pages", type=int, default=300, help="max sections per guide")
-    ap.add_argument("--browser", default="chrome", choices=["chrome", "chromium"])
-    ap.add_argument("--library-url", help="page that lists your purchased guides (remembered after the first run)")
+    ap.add_argument("--browser", default="chrome", choices=["chrome", "chromium"],
+                    help="'chrome' uses your installed Google Chrome if there is one; 'chromium' always uses the bundled browser")
+    ap.add_argument("--library-url", help="the page that lists your purchased guides, if Metafy moves it")
     ap.add_argument("--profile", type=Path, default=PROFILE_DIR, help=argparse.SUPPRESS)
-    ap.add_argument("--headless", action="store_true", help="run without a window (only once you're logged in)")
+    ap.add_argument("--headless", action="store_true", help="no browser window; needs a login saved by an earlier run")
     args = ap.parse_args()
     args.out = args.out.expanduser()
     for stream in (sys.stdout, sys.stderr):  # Windows consoles may not be UTF-8; never crash on a "·"
@@ -473,16 +474,23 @@ def main() -> int:
         for u in bad:
             log(f"  {u}")
         return 2
+    if args.match:
+        try:
+            re.compile(args.match)
+        except re.error as e:
+            log(f"--match {args.match!r} is not a valid regular expression: {e}")
+            return 2
+    args.delay = max(0.0, args.delay)
 
     t_start = time.time()
-    state = json.loads(STATE_FILE.read_text()) if STATE_FILE.exists() else {}
+    state = load_state(STATE_FILE)
     first_run = not args.profile.exists()
     args.out.mkdir(parents=True, exist_ok=True)
     out_root = args.out.resolve()
     ffmpeg = None if args.no_videos else find_ffmpeg(args.ffmpeg)
     if not args.no_videos and not ffmpeg:
         log("Note: no usable ffmpeg found, so Metafy-hosted videos will be kept as (expiring) links only.\n"
-            "      Fix: .venv/bin/pip install imageio-ffmpeg   or   brew install ffmpeg")
+            "      Fix: run the setup again, or install ffmpeg and pass --ffmpeg PATH")
     if args.max_image_px > 0 and Image is None:
         log("Note: Pillow is not installed, so images are kept at full size (pip install Pillow).")
 
@@ -494,7 +502,8 @@ def main() -> int:
             if args.urls:
                 ensure_logged_in(page, args, first_run)
                 page = current_page(ctx)
-                targets = [(guide_base(u), "") for u in args.urls]
+                # One entry per guide, in the order given: a section link and its guide are the same guide.
+                targets = [(b, "") for b in dict.fromkeys(guide_base(u) for u in args.urls)]
             else:
                 with contextlib.suppress(Exception):
                     page.goto(args.library_url or state.get("library_url") or LIBRARY_URL, wait_until="domcontentloaded", timeout=60_000)
@@ -512,9 +521,10 @@ def main() -> int:
                     page = current_page(ctx)
                     if login_state(page) == "out":
                         log("WARNING: the page looks logged out; paid sections may come out empty.")
-                state["library_url"] = page.url
-                STATE_FILE.write_text(json.dumps(state, indent=2))
                 targets = find_guides(page, args)
+                if targets:  # remember the page only once it has proven to be the library
+                    state["library_url"] = page.url
+                    save_state(STATE_FILE, state)
                 if not targets and args.match:
                     return 1
                 if not targets:
@@ -522,7 +532,7 @@ def main() -> int:
                     dump.write_text(page.content(), encoding="utf-8")
                     log(f"\nNo guide links found on {page.url}")
                     log(f"Saved that page to {dump} for troubleshooting.")
-                    log("You can also pass guide URLs directly:  python metafy_archiver.py <guide-url> ...")
+                    log("You can also pass guide addresses directly:  ./archive <guide-url> ...")
                     return 1
                 log(f"\nFound {len(targets)} guide(s):")
                 for i, (u, t) in enumerate(targets, 1):
@@ -552,7 +562,7 @@ def main() -> int:
                     else:
                         done[base] = {"dir": str(res["dir"].relative_to(out_root)),
                                       "pdf": str(res["pdf"].relative_to(out_root))}
-                    STATE_FILE.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+                    save_state(STATE_FILE, state)
                     sizes = [f"PDF {human_size(res['pdf'].stat().st_size)}",
                              f"images {human_size(dir_size(res['dir'] / 'images'))}"]
                     if (res["dir"] / "videos").is_dir():

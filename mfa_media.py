@@ -173,7 +173,10 @@ def http_opts(url: str, referer: str) -> list[str]:
     """ffmpeg input options for web URLs; local files reject them."""
     if not url.lower().startswith(("http://", "https://")):
         return []
-    return ["-headers", f"Referer: {referer}\r\nOrigin: {referer.rstrip('/')}\r\n", "-user_agent", UA]
+    # rw_timeout: give up on a stalled connection after 30 s (microseconds) rather than hanging
+    # forever; reconnect: pick a dropped connection back up, which long HLS downloads need.
+    return ["-headers", f"Referer: {referer}\r\nOrigin: {referer.rstrip('/')}\r\n", "-user_agent", UA,
+            "-rw_timeout", "30000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
 
 
 def probe_fps(ffmpeg: str, url: str, referer: str) -> float:
