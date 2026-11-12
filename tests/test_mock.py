@@ -260,6 +260,19 @@ def test_archive(tmp_path: Path) -> None:
         info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(small)], capture_output=True, text=True).stderr
         assert "214x160" in info or "212x160" in info, info  # scaled from 320x240 to 160 tall
 
+    # --zip packs the guide folder next to itself, media stored uncompressed, rebuilt on demand.
+    import zipfile
+    z = ma.zip_folder(main["dir"])
+    assert z == main["dir"].with_suffix(".zip") and z.exists()
+    with zipfile.ZipFile(z) as zf:
+        names = zf.namelist()
+        assert f"{main['dir'].name}/guide.html" in names and f"{main['dir'].name}/source.json" in names
+        assert any(n.endswith(".pdf") for n in names)
+        if have_clip:
+            mp4 = next(i for i in zf.infolist() if i.filename.endswith(".mp4"))
+            assert mp4.compress_type == zipfile.ZIP_STORED
+    assert ma.zip_folder(main["dir"]) == z  # rebuild is fine
+
     # Pure helpers.
     assert ma.hash_text("Based on 130+ ratings and 330+ purchases. Posted 13 hours ago. 4x Bonney") == \
         ma.hash_text("Based on 131+ ratings and 340+ purchases. Posted a day ago. 4x Bonney")

@@ -5,6 +5,7 @@ import datetime as dt
 import re
 import subprocess
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 # /guides/view/<slug>, /guides/<slug>, /@coach/guides/<slug> ...
@@ -81,6 +82,26 @@ def hash_text(text: str) -> str:
     for rx in VOLATILE_RES:
         text = rx.sub("#", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def zip_folder(folder: Path) -> Path:
+    """Pack a guide folder into <folder>.zip next to it (rebuilt each time).
+
+    Media files are already compressed, so they are stored as-is; that makes zipping a
+    250 MB guide a matter of seconds rather than minutes. Written to a .part file first so an
+    interrupted run never leaves a truncated zip behind.
+    """
+    import zipfile
+    dest = folder.with_suffix(".zip")
+    part = folder.with_suffix(".zip.part")
+    stored = {".mp4", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".pdf", ".avif"}
+    with zipfile.ZipFile(part, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+        for p in sorted(folder.rglob("*")):
+            if p.is_file() and not p.name.startswith("."):
+                z.write(p, p.relative_to(folder.parent),
+                        compress_type=zipfile.ZIP_STORED if p.suffix.lower() in stored else zipfile.ZIP_DEFLATED)
+    part.replace(dest)
+    return dest
 
 
 def human_size(n: int | float) -> str:

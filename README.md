@@ -190,6 +190,7 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | `--theme light` | plain paper look instead of the default dark Metafy theme |
 | `--paper A4` | PDF paper size (default Letter) |
 | `-o DIR` | output folder (default `guides/`) |
+| `--zip` | after each guide, also pack its folder into `guides/<title>.zip` for moving or sharing with yourself |
 | `--login` | log in again even though a session is saved |
 | `--browser chromium` | use the bundled Chromium instead of your installed Google Chrome |
 | `--headless` | no browser window; only once you are logged in |

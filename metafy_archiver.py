@@ -30,7 +30,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
 from mfa_common import (SKIP_PATH_RE, clean_url, guide_base, hash_text, human_duration, human_size,  # noqa: F401 (re-exported)
-                        launch_or_install, log, pdf_name, safe_name, strip_site)
+                        launch_or_install, log, pdf_name, safe_name, strip_site, zip_folder)
 from mfa_media import (ImageStore, Image, download_video, find_ffmpeg, is_media_url, link_expiry,  # noqa: F401
                        merge_videos, never_download, shrink_image, stable_key, video_host)
 from mfa_output import (DEFAULT_THEME, THEMES, changes_text, diff_sections, place_images, place_videos,  # noqa: F401
@@ -429,6 +429,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("urls", nargs="*", help="guide URLs to archive (default: every guide linked from your library page)")
     ap.add_argument("-o", "--out", type=Path, default=HERE / "guides", help="output folder (default: ./guides)")
+    ap.add_argument("--zip", action="store_true",
+                    help="after each guide, also pack its folder into guides/<title>.zip (PDF, videos, images, html)")
     ap.add_argument("--force", action="store_true", help="re-download guides that were already archived")
     ap.add_argument("--login", action="store_true", help="pause for login even if a saved session exists")
     ap.add_argument("--match", help="only archive guides whose URL matches this regex")
@@ -536,6 +538,10 @@ def main() -> int:
                              f"images {human_size(dir_size(res['dir'] / 'images'))}"]
                     if (res["dir"] / "videos").is_dir():
                         sizes.append(f"videos {human_size(dir_size(res['dir'] / 'videos'))}")
+                    if args.zip:
+                        z = zip_folder(res["dir"])
+                        sizes.append(f"zip {human_size(z.stat().st_size)}")
+                        log(f"  zipped: {z}")
                     log(f"  saved: {res['pdf']}")
                     log(f"  {' · '.join(sizes)} · {human_duration(time.time() - t0)}")
                     ok += 1
