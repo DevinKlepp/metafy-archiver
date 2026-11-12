@@ -136,14 +136,15 @@
     }
     for (const u of urls) {
       const d = document.createElement('div');
-      const a = document.createElement('a');
-      a.href = u; a.textContent = u.length > 120 ? u.slice(0, 117) + '…' : u;
-      d.appendChild(a); box.appendChild(d);
       if (seenVid.has(u)) {
-        const slot = document.createElement('div');
-        slot.textContent = 'MFAVID_' + seenVid.get(u) + '_';
-        box.appendChild(slot);
+        // The Python side decides what to show: the saved file, or the link and why it was not saved.
+        d.textContent = 'MFAVID_' + seenVid.get(u) + '_';
+      } else {
+        const a = document.createElement('a');
+        a.href = u; a.textContent = u.length > 120 ? u.slice(0, 117) + '…' : u;
+        d.appendChild(a);
       }
+      box.appendChild(d);
     }
     return box;
   };

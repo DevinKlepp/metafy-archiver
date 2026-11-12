@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 import shutil
 import struct
 import subprocess
@@ -54,12 +55,21 @@ class Handler(SimpleHTTPRequestHandler):
             return p + ".html"
         return p
 
+    def end_headers(self):  # the test edits pages between runs; the browser must not cache them
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def log_message(self, *a):  # keep test output quiet
         pass
 
 
+class QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):  # ffmpeg probes then drops connections; not an error
+        pass
+
+
 def serve(root: Path) -> tuple[ThreadingHTTPServer, str]:
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), partial(Handler, directory=str(root)))
+    srv = QuietServer(("127.0.0.1", 0), partial(Handler, directory=str(root)))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
@@ -70,6 +80,7 @@ def test_archive(tmp_path: Path) -> None:
     (site / "img").mkdir()
     (site / "img" / "banner.png").write_bytes(png(200, 120))  # /img/missing.png deliberately absent
     (site / "img" / "wide.png").write_bytes(png(2400, 300))
+    (site / "img" / "banner-copy.png").write_bytes(png(200, 120))  # same bytes as banner.png
     (site / "media").mkdir()
     ffmpeg = ma.find_ffmpeg(None)
     have_clip = bool(ffmpeg) and make_clip(ffmpeg, site / "media" / "clip.mp4")
@@ -107,6 +118,30 @@ def test_archive(tmp_path: Path) -> None:
                     assert res, base
                     ma.render_pdf(pw, res["dir"], res["pdf"], res["title"], args.paper)
                     results[base.rsplit("/", 1)[-1]] = res
+
+                # Snapshot the first run's outputs; the re-run below overwrites them.
+                first = results["mock-guide-abc123"]["dir"]
+                first_src, first_html = (first / "source.json").read_text(), (first / "guide.html").read_text()
+
+                # The guide changes: one section edited, one added. A re-run must report both and
+                # reuse the video it already saved.
+                main_base = f"{origin}/guides/view/mock-guide-abc123"
+                p2 = site / "guides/view/mock-guide-abc123/2-matchups.html"
+                p2.write_text(p2.read_text().replace("Win rate", "Win percentage"))
+                root = site / "guides/view/mock-guide-abc123.html"
+                root.write_text(root.read_text().replace("</ol>", '<li><a href="/guides/view/mock-guide-abc123/3-extra">3. Extra</a></li></ol>'))
+                (site / "guides/view/mock-guide-abc123/3-extra.html").write_text(
+                    root.read_text().replace("<h2>Mock Guide</h2>", "<h2>3. Extra</h2>").replace("Welcome.", "Brand new section."))
+                rerun = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=results["mock-guide-abc123"]["dir"], ffmpeg=ffmpeg)
+                assert rerun and rerun["dir"] == results["mock-guide-abc123"]["dir"]
+                ch = rerun["changes"]
+                assert ch and ch["new"] == ["3. Extra"] and ch["updated"] == ["2. Matchups"] and ch["removed"] == [], ch
+                html2 = (rerun["dir"] / "guide.html").read_text()
+                assert "Changes since" in html2 and "New: 3. Extra" in html2 and ">NEW<" in html2 and ">UPDATED<" in html2
+                assert results["mock-guide-abc123"]["pdf"].exists()  # earlier PDF kept
+                if have_clip:
+                    assert (rerun["dir"] / "videos/03-2. Matchups-1.mp4").exists()
+                    assert not any("clip.mp4" in u for u in attempted[2:]), attempted  # reused, not re-fetched
             finally:
                 ctx.close()
                 srv.shutdown()
@@ -114,8 +149,7 @@ def test_archive(tmp_path: Path) -> None:
         ma.download_video = real_download
 
     main = results["mock-guide-abc123"]
-    src = json.loads((main["dir"] / "source.json").read_text())
-    html = (main["dir"] / "guide.html").read_text()
+    src, html = json.loads(first_src), first_html  # the first run's outputs
     # Title, author, sections in sidebar order with sidebar labels (not the fixed "REMOVE" h1).
     assert main["title"] == "Mock Guide"
     assert src["author"] == "Mock Coach (@mockcoach)"
@@ -151,20 +185,24 @@ def test_archive(tmp_path: Path) -> None:
         assert clip["file"] == "videos/03-2. Matchups-1.mp4", clip
         saved = main["dir"] / clip["file"]
         assert saved.exists() and saved.stat().st_size > 10_000
-        assert "Saved copy: <a href='videos/03-2. Matchups-1.mp4'>" in html
-        assert mux["note"].startswith("Download failed"), mux
-        assert "Download failed" in (main["dir"] / "videos.md").read_text()
+        assert html.count("Saved copy: <a href='videos/03-2. Matchups-1.mp4'>") == 2  # box + section list
+        assert f"{origin}/media/clip.mp4" not in html  # the dead link is not printed once saved
+        assert mux["note"].startswith("download failed"), mux
+        assert "download failed" in (main["dir"] / "videos.md").read_text()
+        assert "download failed" in html and "stream.mux.com/MOCKID123" in html  # unsaved: link + reason
     else:
         print("NOTE: no usable ffmpeg, video download assertions skipped")
+    # The same image under two URLs is stored once (content hash) and both tags point at it.
+    assert html.count("images/") >= 3 and len({l for l in re.findall(r"images/[\w.-]+", html)}) == 2
     # Markup clean-up: framework comments gone, Q&A thread as comment blocks, no div inside p,
     # the "Like" button dropped, no deep single-child div chains.
     assert "<!--" not in html.split("<section", 1)[1]
     assert html.count("class=\"mfa-comment\"") == 2 and "Like</button>" not in html and "<button" not in html
     assert "<p><div" not in html
     assert "<div><div><div>" not in html
-    assert "Download failed" in html or not have_clip
-    # Cover page carries the author, section and video counts.
+    # Cover page carries the author, section and video counts; first archive has no change report.
     assert "By Mock Coach" in html and "3 sections" in html and "videos" in html
+    assert src["changes"] is None and "Changes since" not in html
     # Same title, different guide: separate folder, nothing overwritten.
     other = results["mock-guide-xyz789"]
     assert other["dir"] != main["dir"] and other["dir"].name == "Mock Guide (mock-guide-xyz789)"

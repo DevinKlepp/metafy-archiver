@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Runs the archiver with the environment created by setup.sh. Usage: ./archive [guide URL ...] [options]
+HERE="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -x "$HERE/.venv/bin/python" ]; then
+  echo "Run ./setup.sh first (it creates the .venv folder this script needs)." >&2
+  exit 1
+fi
+exec "$HERE/.venv/bin/python" "$HERE/metafy_archiver.py" "$@"
