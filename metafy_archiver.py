@@ -188,7 +188,8 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
     guide_title = author = ""
     video_files: dict[str, Path] = {}  # rel path -> where the file currently is
     consumed: set[Path] = set()  # earlier files replaced by a re-encoded copy
-    want = "x264" if args.compress_videos else "copy"
+    level = args.compress_videos  # None, "normal" or "small"
+    want = f"x264-{level}" if level else "copy"
     # Videos saved by an earlier run, keyed by what stays stable across runs (the Mux playback id),
     # not by file name: sections get inserted and renumber everything after them.
     prev_videos: dict[str, dict] = {}
@@ -217,20 +218,23 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
         name = safe_name(f"{chapter_no:02d}-{chapter_title}") + (f"-{k}" if k else "") + ".mp4"
         rel = f"videos/{name}"
         prev = prev_videos.get(stable_key(v["url"]))
-        if prev and not (args.compress_videos and prev["encoded"] != "x264"):
+        # Reuse what we have unless a specific compression level was asked for and this file isn't it.
+        if prev and (not level or prev["encoded"] == want):
             renamed = "" if prev["path"].name == name else f" (was {prev['path'].name})"
             log(f"    video already saved earlier: {name}{renamed}")
             v["file"], v["encoded"] = rel, prev["encoded"]
             video_files[rel] = prev["path"]
             return
-        if prev:
-            log(f"    compressing the copy saved earlier -> {name} (no download)")
-            source = str(prev["path"])
+        if prev and prev["encoded"] == "copy":
+            log(f"    compressing ({level}) the copy saved earlier -> {name} (no download)")
+            source = str(prev["path"])  # an untouched copy: encode from it rather than downloading again
         else:
-            log(f"    downloading {v['host']} video -> {name}" + (" (compressing)" if args.compress_videos else ""))
+            # Either nothing saved yet, or an already re-encoded file at a different level: encoding
+            # that again would stack losses, so go back to the stream.
+            log(f"    downloading {v['host']} video -> {name}" + (f" (compressing: {level})" if level else ""))
             source = v["url"]
         if download_video(ffmpeg, source, tmp_dir / "videos" / name, referer,
-                          max_height=args.video_max_height, compress=args.compress_videos):
+                          max_height=args.video_max_height, compress=level):
             v["file"], v["encoded"] = rel, want
             video_files[rel] = tmp_dir / "videos" / name
             if prev:
@@ -443,8 +447,9 @@ def main() -> int:
     ap.add_argument("--no-videos", action="store_true", help="don't download Metafy-hosted videos, keep links only")
     ap.add_argument("--video-max-height", type=int, default=720, metavar="PX",
                     help="pick the stream variant at most this tall, e.g. 480 (default 720); no re-encoding")
-    ap.add_argument("--compress-videos", action="store_true",
-                    help="re-encode videos with x264 at up to 30 fps and --video-max-height (about a third smaller, slower)")
+    ap.add_argument("--compress-videos", nargs="?", const="normal", choices=["normal", "small"], metavar="LEVEL",
+                    help="re-encode videos (x264, 30 fps, mono audio): 'normal' is about half the size with no visible "
+                         "loss, 'small' about a third with slight softening; costs ~5%% of the video's length in CPU time")
     ap.add_argument("--ffmpeg", help="path to ffmpeg (default: PATH, then the imageio-ffmpeg package)")
     ap.add_argument("--delay", type=float, default=1.5, help="seconds to wait between pages (default 1.5)")
     ap.add_argument("--max-pages", type=int, default=300, help="max sections per guide")

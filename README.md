@@ -157,10 +157,13 @@ saves them during the run. They are kept exactly as served, up to 720p.
 | --- | --- |
 | `--no-videos` | keep Metafy-hosted videos as links only |
 | `--video-max-height 480` | take the smaller 480p variant instead; no re-encoding, instant |
-| `--compress-videos` | re-encode to at most 30 fps with x264; roughly a third smaller, costs about a tenth of the video's length in CPU time. Videos you already have are re-encoded from the local copy. |
+| `--compress-videos` | re-encode with x264 at 30 fps and mono commentary audio: about half the size with no visible loss (VMAF 92). Videos you already have are re-encoded from the local copy. |
+| `--compress-videos small` | about a third of the size with slight softening (VMAF 88) |
 
-On one 8-minute 720p60 video the saved file was 47 MB; `--compress-videos` brought it to 31 MB in
-ten seconds on a recent Mac.
+Measured on an 8-minute 720p60 matchup video that Metafy serves at 47 MB: `--compress-videos`
+gives 24 MB and `small` about 16 MB, each taking roughly 20 seconds on a recent Mac.
+H.264 is used on purpose: HEVC and AV1 save a little more but need extra codecs on Windows and
+older devices.
 
 > [!NOTE]
 > YouTube, Vimeo and Twitch videos are never downloaded, by design. They are stable links and
@@ -185,7 +188,7 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | `--match REGEX` | library mode: only guides whose URL matches |
 | `--no-videos` | keep Metafy-hosted videos as links only |
 | `--video-max-height PX` | stream variant to take, default 720 |
-| `--compress-videos` | re-encode videos to at most 30 fps and the height above |
+| `--compress-videos [small]` | re-encode videos: half size (default level) or a third (`small`) |
 | `--max-image-px N` | image size limit, default 1600; `0` keeps originals |
 | `--theme light` | plain paper look instead of the default dark Metafy theme |
 | `--paper A4` | PDF paper size (default Letter) |

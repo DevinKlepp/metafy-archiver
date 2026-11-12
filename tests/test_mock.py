@@ -89,7 +89,7 @@ def test_archive(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir()
     args = Namespace(selector=None, max_pages=50, delay=0, paper="Letter", match=None,
-                     max_image_px=1600, no_videos=False, video_max_height=720, compress_videos=False)
+                     max_image_px=1600, no_videos=False, video_max_height=720, compress_videos=None)
 
     # The Mux URL in the fixture points at the real stream.mux.com; don't hit it from a test.
     real_download = ma.download_video
@@ -154,14 +154,25 @@ def test_archive(tmp_path: Path) -> None:
                     assert clip2["file"] == "videos/04-2. Matchups-1.mp4" and clip2["encoded"] == "copy"
                     # Asking for compression re-encodes the saved copy locally, still without a download.
                     n_attempts = len(attempted)
-                    args.compress_videos = True
+                    args.compress_videos = "normal"
                     rerun3 = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=first, ffmpeg=ffmpeg)
-                    args.compress_videos = False
                     assert rerun3 and not any("clip.mp4" in u for u in attempted[n_attempts:])
                     src3 = json.loads((first / "source.json").read_text())
                     clip3 = next(v for s in src3["sections"] for v in s["videos"] if v.get("file"))
-                    assert clip3["encoded"] == "x264" and (first / clip3["file"]).exists()
+                    assert clip3["encoded"] == "x264-normal" and (first / clip3["file"]).exists()
                     assert len(list((first / "videos").glob("*.mp4"))) == 1  # the uncompressed copy was replaced
+                    # A different level is not re-encoded from the lossy file: it goes back to the stream.
+                    n_attempts = len(attempted)
+                    args.compress_videos = "small"
+                    rerun4 = ma.archive_guide(ctx, page, main_base, out, args, prev_dir=first, ffmpeg=ffmpeg)
+                    args.compress_videos = None
+                    assert rerun4 and any("clip.mp4" in u for u in attempted[n_attempts:])
+                    src4 = json.loads((first / "source.json").read_text())
+                    assert next(v for s in src4["sections"] for v in s["videos"] if v.get("file"))["encoded"] == "x264-small"
+                    # And with no level asked for, whatever is there is simply reused.
+                    n_attempts = len(attempted)
+                    assert ma.archive_guide(ctx, page, main_base, out, args, prev_dir=first, ffmpeg=ffmpeg)
+                    assert not any("clip.mp4" in u for u in attempted[n_attempts:])
                     (first / "source.json").write_text(json.dumps(src2))  # back to the second run's data for the checks below
             finally:
                 ctx.close()
@@ -255,7 +266,7 @@ def test_archive(tmp_path: Path) -> None:
     if have_clip:
         small = tmp_path / "small.mp4"
         assert ffmpeg and mm.download_video(ffmpeg, str((site / "media" / "clip.mp4").resolve()), small, "http://x/",
-                                            max_height=160, compress=True)
+                                            max_height=160, compress="small")
         from PIL import Image as _I  # noqa: F401 (Pillow already required)
         info = subprocess.run([ffmpeg, "-hide_banner", "-i", str(small)], capture_output=True, text=True).stderr
         assert "214x160" in info or "212x160" in info, info  # scaled from 320x240 to 160 tall

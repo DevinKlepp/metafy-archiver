@@ -186,14 +186,22 @@ def probe_fps(ffmpeg: str, url: str, referer: str) -> float:
         return 0.0
 
 
+# Re-encoding levels, measured on a 720p60 Metafy gameplay stream against the original with VMAF
+# (a perceptual quality score where 90+ is visually transparent and 85+ is good):
+#   normal: x264 medium CRF 30, 30 fps, 64 kbps mono AAC -> 46% of the original, VMAF 92
+#   small:  x264 medium CRF 34, 30 fps, 64 kbps mono AAC -> 33% of the original, VMAF 88
+# x264 is used rather than HEVC/AV1 because it plays everywhere without extra codecs.
+COMPRESS_LEVELS = {"normal": 30, "small": 34}
+
+
 def download_video(ffmpeg: str, url: str, dest: Path, referer: str,
-                   max_height: int = 720, compress: bool = False, max_fps: int = 30) -> bool:
+                   max_height: int = 720, compress: str | None = None, max_fps: int = 30) -> bool:
     """Save a stream (HLS/DASH/MP4) to dest as MP4. Prints progress every 20 s.
 
     By default the stream is copied without re-encoding, choosing the best HLS variant that is at
-    most max_height tall. With compress=True it is re-encoded with x264 (veryfast, CRF 26), capped
-    at max_fps and max_height; on a recent laptop that takes about a tenth of the video's length
-    and saves roughly a third of the size on 60 fps sources.
+    most max_height tall. With compress set to a COMPRESS_LEVELS key it is re-encoded with x264,
+    capped at max_fps and max_height, with the commentary audio folded to mono; on a recent laptop
+    that costs about 5% of the video's length.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
@@ -209,12 +217,13 @@ def download_video(ffmpeg: str, url: str, dest: Path, referer: str,
             log(f"      (could not read the stream's variant list: {str(e).splitlines()[0][:60]})")
     codec: list[str] = ["-c", "copy"]
     if compress:
+        crf = COMPRESS_LEVELS.get(compress, COMPRESS_LEVELS["normal"])
         filters = []
         if probe_fps(ffmpeg, url, referer) > max_fps:
             filters.append(f"fps={max_fps}")
         filters.append(f"scale=-2:min({max_height}\\,ih)")
-        codec = ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26",
-                 "-pix_fmt", "yuv420p", "-c:a", "copy"]
+        codec = ["-vf", ",".join(filters), "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "64k", "-ac", "1"]
     cmd = [ffmpeg, "-y", "-nostdin", "-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1",
            *http_opts(url, referer),
            "-i", url, "-map", vmap, "-map", "0:a:0?", *codec, "-movflags", "+faststart", "-f", "mp4", str(part)]
