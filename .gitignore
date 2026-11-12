@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.browser-profile/
+.state.json
+/guides/
+.DS_Store
