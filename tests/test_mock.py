@@ -145,6 +145,7 @@ def test_archive(tmp_path: Path) -> None:
     assert "Metafy-hosted video: Rocks matchup" in html and "YouTube video: Intro video" in html
     assert not any("deco.webm" in u for u in vids), vids
     assert "mfa-host'>Metafy<" in html and "mfa-host'>YouTube<" in html
+    assert not any("youtu" in u for u in attempted), attempted  # YouTube is never downloaded
     if have_clip:
         clip = vids[f"{origin}/media/clip.mp4"]
         assert clip["file"] == "videos/03-2. Matchups-1.mp4", clip

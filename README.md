@@ -7,7 +7,7 @@ For each guide it writes a folder under `guides/<guide title>/`:
 | File | What it is |
 | --- | --- |
 | `<guide title> - 2026-11-11 2153.pdf` | Every section in one PDF, with video links inline and listed per section. Each run adds a new timestamped PDF; earlier ones are kept. |
-| `videos/` | Metafy-hosted videos saved as MP4. Their stream links are signed and expire within hours, so they are downloaded during the run. YouTube/Vimeo/Twitch videos stay links. |
+| `videos/` | Metafy-hosted videos saved as MP4. Their stream links are signed and expire within hours, so they are downloaded during the run. YouTube/Vimeo/Twitch videos are never downloaded, by design; they stay links. |
 | `guide.html` | Same content as a web page (uses `images/` and `videos/`) |
 | `images/` | Every image from the guide, downscaled to 1600 px for a sane PDF size |
 | `videos.md` | All video links, grouped by section, with where each one is hosted and whether it was saved |

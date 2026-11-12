@@ -472,8 +472,12 @@ def archive_guide(ctx: BrowserContext, page: Page, base: str, out_root: Path, ar
 
     def fetch_video(v: dict, chapter_no: int, chapter_title: str, k: int, referer: str) -> None:
         """Decide whether to save this video and do it; annotate v with file/note."""
+        # YouTube, Vimeo and Twitch videos are never downloaded, by design: they are stable links,
+        # and pulling them would need a different tool. Only Metafy's own streams are saved.
+        if v["host"] in ("YouTube", "Vimeo", "Twitch") or re.search(r"googlevideo\.com|youtu", v["url"], re.I):
+            return
         if v["kind"] not in ("stream", "video") or not is_media_url(v["url"]):
-            return  # YouTube/Vimeo/Twitch pages stay links
+            return
         exp = f" (stream link expires {v['expires'].replace('T', ' ')})" if v.get("expires") else ""
         if args.no_videos:
             v["note"] = "Not downloaded (--no-videos)" + exp
