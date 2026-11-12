@@ -67,7 +67,7 @@ body { font: 11.5pt/1.55 -apple-system, "Helvetica Neue", Arial, sans-serif; col
        max-width: 820px; margin: 0 auto; padding: 0 12px; overflow-wrap: anywhere; }
 h1, h2, h3, h4 { line-height: 1.25; break-after: avoid; margin: 1.4em 0 .5em; }
 h1 { font-size: 22pt; } h2 { font-size: 16pt; } h3 { font-size: 13pt; }
-img, svg { max-width: 100%; height: auto; display: block; margin: 10px 0; break-inside: avoid; }
+img, svg { max-width: 100%; max-height: 120mm; width: auto; height: auto; display: block; margin: 10px 0; break-inside: avoid; }
 a { color: #1a55c4; }
 pre, code { font: 9.5pt/1.4 Menlo, monospace; background: #f3f3f3; }
 pre { padding: 10px; white-space: pre-wrap; }
