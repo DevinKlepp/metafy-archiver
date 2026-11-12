@@ -68,6 +68,8 @@ removed sections are listed on the cover page and flagged in the table of conten
 - **A Metafy account** with purchased guides. The archiver logs in through a browser window
   exactly as you would; it never asks for your password.
 - About **1 GB of free disk** per guide with videos. A guide without videos is around 15 MB.
+- On **Linux**, the setup script tells you if a system package is missing (the Python venv module
+  on Debian and Ubuntu, or the browser's libraries) and prints the one command that installs it.
 
 Everything else (the browser, ffmpeg for videos, image tooling) is installed by the setup script
 into a private folder inside the project. Nothing is installed system-wide.
@@ -89,6 +91,9 @@ Then run the setup once.
 ```sh
 ./setup.sh
 ```
+
+The scripts are plain POSIX `sh`, so they run under whatever shell your system has: zsh, bash,
+dash or busybox.
 
 ### Windows
 
@@ -216,9 +221,10 @@ PDF into a 15 MB one with no visible difference on paper. `--max-image-px 0` kee
 | A section comes out nearly empty | The run prints a warning. Usually the login expired: run again with `--login`. |
 | Videos are kept as links only | The run says ffmpeg was not found. Re-run `./setup.sh`, or install ffmpeg yourself (`brew install ffmpeg` on a Mac). |
 | The wrong part of the page is captured | Pass `--selector` with a CSS selector for the guide body, for example `--selector article`. |
-| `./setup.sh: Permission denied` | Run `bash setup.sh` instead; it restores the permissions. |
+| `./setup.sh: Permission denied` | Run `sh setup.sh` instead; it restores the permissions. |
 | Windows: `setup.ps1 is not digitally signed` | Run `.\setup.cmd` instead, which handles this, or `Unblock-File setup.ps1` once in PowerShell. |
-| Linux: Chromium fails to start with "missing dependencies" | Run `.venv/bin/python -m playwright install-deps chromium` once (needs sudo), then try again. On a Linux release newer than Playwright supports, that command refuses; install the libraries it lists with your package manager, or install Google Chrome, which the archiver prefers anyway. |
+| Linux: "Could not create the Python environment" | Debian and Ubuntu ship the venv module separately: `sudo apt install python3-venv`, then `./setup.sh` again. |
+| Linux: "The browser was downloaded but could not start" | A fresh install lacks the browser's system libraries. Run `sudo .venv/bin/python -m playwright install-deps chromium` once, then `./setup.sh` again. Tested on Ubuntu 26.04. |
 | Google Chrome is not installed | Nothing to do; the bundled Chromium is used automatically. |
 | Odd characters in the terminal on Windows | Cosmetic. Use Windows Terminal, or ignore it; files are unaffected. |
 | Start over | Delete `.browser-profile/` (saved login) and `.state.json` (what is done). |
@@ -256,7 +262,9 @@ heuristics in `js/extract.js` are where to look.
 
 The mock test serves a small fake guide site, archives it twice (the second time with a section
 inserted and one edited), really downloads a clip with ffmpeg, and re-encodes it. A GitHub
-Actions workflow in `.github/workflows/test.yml` runs the same on every push.
+Actions workflow in `.github/workflows/test.yml` runs `sh setup.sh` and the same tests on every
+push, inside Playwright's Ubuntu image, so the exact steps a new user follows are what is tested.
+Keep that image's tag in step with the `playwright` pin in `requirements.txt`.
 
 `docs/demo.gif` is rendered from a real, path-sanitised run by `docs/demo/render.py`.
 

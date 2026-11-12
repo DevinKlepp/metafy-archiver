@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Runs the archiver with the environment created by setup.sh. Usage: ./archive [guide URL ...] [options]
 HERE="$(cd "$(dirname "$0")" && pwd)"
 if [ ! -x "$HERE/.venv/bin/python" ]; then

@@ -5,9 +5,11 @@ jobs:
     runs-on: ubuntu-latest
     # Playwright's own image: browsers and their system libraries are preinstalled, so there is
     # no apt step to break. Keep the tag in step with the playwright pin in requirements.txt.
-    container: mcr.microsoft.com/playwright/python:v1.57.0-noble
+    container: mcr.microsoft.com/playwright/python:v1.65.1-noble
     steps:
       - uses: actions/checkout@v4
-      - run: pip install -r requirements.txt
-      - run: python tests/test_images.py
-      - run: python tests/test_mock.py
+      # The same steps a user runs: sh is dash here, so the scripts stay POSIX.
+      - run: sh setup.sh
+      - run: ./archive --help > /dev/null
+      - run: .venv/bin/python tests/test_images.py
+      - run: .venv/bin/python tests/test_mock.py

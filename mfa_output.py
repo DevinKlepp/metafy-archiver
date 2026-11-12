@@ -223,7 +223,8 @@ def render_pdf(pw, out_dir: Path, pdf_path: Path, title: str, paper: str) -> Non
     Page size, margins, background and the footer (title, page x / y) all come from the @page
     rules in the HTML, which is what lets the dark theme cover the whole sheet.
     """
-    browser = launch_or_install(lambda: pw.chromium.launch(headless=True))
+    browser = launch_or_install(lambda: pw.chromium.launch(headless=True),
+                                fallback=lambda: pw.chromium.launch(headless=True, channel="chrome"))
     try:
         page = browser.new_page()
         page.goto((out_dir / "guide.html").as_uri(), wait_until="load", timeout=120_000)

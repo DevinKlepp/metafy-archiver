@@ -54,19 +54,30 @@ def pdf_name(title: str, when: dt.datetime) -> str:
     return safe_name(f"{title} - {when:%Y-%m-%d %H%M}") + ".pdf"
 
 
-def launch_or_install(launch):
+def launch_or_install(launch, fallback=None):
     """Call a Playwright launch function; if its browser is missing, install Chromium once and retry.
 
     This is what lets a fresh download work without anyone knowing the `playwright install` step.
+    `fallback` (another launch function, typically the installed Google Chrome) is tried when
+    the bundled browser still cannot be installed or started, for example on a Linux release
+    Playwright does not support yet.
     """
+    def missing(e):
+        return any(s in str(e) for s in ("Executable doesn't exist", "playwright install"))
     try:
         return launch()
     except Exception as e:
-        if not any(s in str(e) for s in ("Executable doesn't exist", "playwright install")):
+        if not missing(e):
             raise
-        log("Downloading the browser Playwright needs (one time, about 150 MB)...")
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+    log("Downloading the browser Playwright needs (one time, about 150 MB)...")
+    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+    try:
         return launch()
+    except Exception as e:
+        if fallback is None:
+            raise
+        log(f"Bundled browser unavailable ({str(e).splitlines()[0]}); trying Google Chrome instead")
+        return fallback()
 
 
 VOLATILE_RES = [
